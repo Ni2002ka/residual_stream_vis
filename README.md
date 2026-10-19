@@ -10,6 +10,9 @@ residual-stream-vis gpt2                    # or google/gemma-3-1b-pt
 
 The page opens at http://127.0.0.1:8000 and runs on your machine only.
 
+Note: GPT2 is much smaller than Gemma, and often get answers wrong.
+
+
 ## Install
 
 ```bash
