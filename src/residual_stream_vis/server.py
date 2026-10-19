@@ -17,8 +17,10 @@ from importlib import resources
 from pathlib import Path
 from typing import Sequence
 
+import torch
+
 from .edit import Edit, cell, swap_vector, word_direction, word_token
-from .flow import record, trace_record
+from .flow import heads_at, record, trace_record, track
 from .lens import JacobianLens, PRETRAINED_LENSES
 
 DEFAULT_EXAMPLES = [
@@ -31,6 +33,18 @@ DEFAULT_EXAMPLES = [
 
 
 PLOTLY_CDN = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"
+
+
+CHAT_EXAMPLES = [  # word answers first: "Track a word" follows them cleanly (Gemma writes numbers digit by digit)
+    "The Eiffel Tower is in a country. What is the capital of that country? Think step by step.",
+    "Tom's father is Bob. Bob's sister is Alice. Who is Tom's aunt? Think step by step.",
+    "I put a red ball inside a blue box, and the box inside a green bag. "
+    "What color is the container the ball is directly inside? Think step by step.",
+    "Anna is taller than Ben. Ben is taller than Carl. Who is the shortest? Think step by step.",
+    "Lisa has 3 boxes with 12 apples in each box. She gives away 7 apples. "
+    "How many apples does she have left? Think step by step.",
+    "What is 13 + 28? Think step by step.",
+]
 
 
 def _plotly_js() -> bytes:
@@ -118,8 +132,10 @@ def make_server(
         raise ValueError("Pass `tokenizer=` when `model` is an already-loaded model.")
     lens = _resolve_lens(model, lens)
     name = getattr(getattr(model, "config", None), "_name_or_path", None)
+    chat = bool(getattr(tokenizer, "chat_template", None))
     page = _page({"live": True, "model": name, "examples": _fit_examples(tokenizer, examples or DEFAULT_EXAMPLES),
-                  "lens": lens is not None})
+                  "chat_examples": CHAT_EXAMPLES, "chat": chat, "lens": lens is not None})
+    device = next(model.parameters()).device
     lock = threading.Lock()
     plotly_js = _plotly_js()
     originals: dict[str, dict] = {}  # prompt -> record of the unedited run (a few, newest last)
@@ -130,6 +146,33 @@ def make_server(
             while len(originals) > 4:
                 originals.pop(next(iter(originals)))
         return originals[prompt]
+
+    edited_last: dict[str, dict] = {}  # prompt -> record of the most recent edited run
+
+    def run_of(prompt: str, edited: bool) -> dict:
+        if edited and prompt in edited_last:
+            return edited_last[prompt]
+        return original(prompt)
+
+    def generate(user_text: str, max_new_tokens: int, use_chat: bool) -> dict:
+        """Let the model write a response, then trace prompt + response as one sequence."""
+        text = user_text
+        if use_chat and chat:
+            text = tokenizer.apply_chat_template([{"role": "user", "content": user_text}], tokenize=False,
+                                                 add_generation_prompt=True)
+        bos = getattr(tokenizer, "bos_token", None)
+        if bos and text.startswith(bos):  # the tokenizer adds it again
+            text = text[len(bos):]
+        enc = {k: v.to(device) for k, v in tokenizer(text, return_tensors="pt").items()}
+        with torch.no_grad():
+            out = model.generate(**enc, max_new_tokens=max_new_tokens, do_sample=False,
+                                 pad_token_id=getattr(tokenizer, "pad_token_id", None) or getattr(tokenizer, "eos_token_id", None))
+        new = out[0, enc["input_ids"].shape[1]:].tolist()
+        full = text + tokenizer.decode(new, skip_special_tokens=False)
+        data = trace_record(original(full), model, tokenizer, full, lens)
+        data["generated"] = dict(start=int(enc["input_ids"].shape[1]), text=tokenizer.decode(new, skip_special_tokens=True).strip(),
+                                 chat=bool(use_chat and chat), user=user_text, n_new=len(new))
+        return data
 
     def direction_kind(spec: dict) -> str:
         dkind = spec.get("direction") or ("jlens" if lens is not None else "unembed")
@@ -186,6 +229,8 @@ def make_server(
         else:
             raise ValueError(f"Unknown edit kind {kind!r}")
         rec = record(model, tokenizer, prompt, edits=[edit])
+        edited_last.clear()
+        edited_last[prompt] = rec
         data = trace_record(rec, model, tokenizer, prompt, lens)
         change = (rec["h"] - base["h"]).norm(dim=-1) / base["h"].norm(dim=-1).clamp_min(1e-6)
         return dict(trace=data, change=[[round(float(v), 4) for v in row] for row in change],
@@ -209,7 +254,7 @@ def make_server(
                 self._send(404, b"not found", "text/plain")
 
         def do_POST(self):
-            if self.path not in ("/api/trace", "/api/edit"):
+            if self.path not in ("/api/trace", "/api/edit", "/api/generate", "/api/track", "/api/heads"):
                 return self._send(404, b"not found", "text/plain")
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
@@ -220,6 +265,17 @@ def make_server(
                 with lock:
                     if self.path == "/api/trace":
                         data = trace_record(original(prompt), model, tokenizer, prompt, lens)
+                    elif self.path == "/api/generate":
+                        n_new = max(1, min(int(body.get("max_new_tokens", 160)), 512))
+                        data = generate(prompt, n_new, bool(body.get("chat", True)))
+                    elif self.path == "/api/track":
+                        word = str(body.get("word", ""))
+                        if not word.strip():
+                            raise ValueError("Type a word to track.")
+                        data = track(run_of(prompt, bool(body.get("edited"))), model, tokenizer, word, lens)
+                    elif self.path == "/api/heads":
+                        rec = run_of(prompt, bool(body.get("edited")))
+                        data = {"heads": heads_at(rec, int(body["block"]), int(body["position"]))}
                     else:
                         data = run_edit(prompt, body.get("edit") or {})
                 data["seconds"] = round(time.time() - t0, 2)

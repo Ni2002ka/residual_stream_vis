@@ -173,10 +173,22 @@ def flow_weights(stay: torch.Tensor, move: torch.Tensor, layer: int, position: i
     return w
 
 
+_LABELS: dict[tuple[int, int], str] = {}
+
+
+def _label(tokenizer, i: int) -> str:
+    """Cached display text for one token id (decoding is the slow part of long readouts)."""
+    key = (id(tokenizer), i)
+    if key not in _LABELS:
+        _LABELS[key] = _clean(token_str(tokenizer, i))
+    return _LABELS[key]
+
+
 def _top(logits: torch.Tensor, tokenizer, k: int):
     probs = logits.softmax(-1)
     top = probs.topk(k, dim=-1)
-    return [[[_clean(token_str(tokenizer, i)) for i in top.indices[p].tolist()],
+    top = type(top)((top.values.cpu(), top.indices.cpu()))
+    return [[[_label(tokenizer, i) for i in top.indices[p].tolist()],
              [round(v, 4) for v in top.values[p].tolist()]] for p in range(len(logits))]
 
 
@@ -207,10 +219,12 @@ def trace(
         A dict with ``tokens``, ``n_blocks``, ``n_heads``, per-cell lens readouts
         (``logit`` and, with a lens, ``jlens``; ``[layer][position] = [words, probs]``),
         per-block sizes (``resid``, ``attn``, ``mlp``: ``[block][position]``),
-        token mixing (``stay[block][position]``, ``move[block][query][key]``),
-        per-head contributions (``heads[block][head][query][key]``; for each
-        query, the values over all heads and keys sum to 1, and summing over
-        heads gives the combined share of the attention write from each key)
+        token mixing (``stay[block][position]``, and ``move[block][query]`` as
+        ``[key, share]`` pairs above ``MOVE_MIN``), per-head contributions
+        (``heads[block][head][query][key]``; for each query, the values over all
+        heads and keys sum to 1, and summing over heads gives the combined share
+        of the attention write from each key; ``None`` past ``HEADS_INLINE_MAX``
+        tokens, see :func:`heads_at`)
         the model's ``output`` at the last position, and a per-layer ``pca`` of
         the token vectors (``all`` tokens, and ``skip_first`` without the first;
         see :func:`layer_pca`).
@@ -275,21 +289,67 @@ def layer_pca(h: torch.Tensor, *, skip_first: bool = False) -> list[dict]:
     return out
 
 
+#: Prompts longer than this leave per-head shares out of :func:`trace` (they grow
+#: with ``layers × heads × tokens²``); the viewer fetches them one cell at a time.
+HEADS_INLINE_MAX = 64
+#: Token-mixing shares below this are dropped from the sparse ``move`` lists.
+MOVE_MIN = 1e-3
+
+
+def heads_at(rec: dict, block: int, position: int) -> list[list[float]]:
+    """Per-head shares of one cell's attention write, ``[head][key]``: summing over heads gives the combined share."""
+    raw = _shares(rec)[block, :, position]                         # (heads, keys)
+    raw = raw / raw.sum().clamp_min(1e-12)
+    return [[round(float(v), 4) for v in row] for row in raw]
+
+
+@torch.no_grad()
+def track(rec: dict, model: nn.Module, tokenizer, word: str, lens: JacobianLens | None = None) -> dict:
+    """Rank of ``word``'s token in every cell, under each lens (1 = the lens's top word).
+
+    Returns ``{"token": ..., "n_tokens": ..., "logit": [[rank per position] per layer], "jlens": ...}``;
+    J-lens layers it doesn't cover are ``None``. A word that is several tokens is
+    tracked by its first token (``n_tokens`` says how many it has).
+    """
+    from .edit import word_token
+
+    i, text = word_token(tokenizer, word)
+    pieces = [t for t in tokenizer(word.strip(), add_special_tokens=False)["input_ids"] if token_str(tokenizer, t).strip()]
+    n_tokens = 1 if len(tokenizer(word, add_special_tokens=False)["input_ids"]) == 1 else max(1, len(pieces))
+    n_layers = rec["h"].shape[0]
+
+    def ranks(L, layer):
+        logits = lens_logits(model, L, rec["h"][layer], layer, on_device=True)
+        return ((logits > logits[:, i : i + 1]).sum(-1) + 1).cpu().tolist()
+
+    out = {"token": text, "n_tokens": n_tokens, "logit": [ranks(None, l) for l in range(n_layers)]}
+    if lens is not None:
+        out["jlens"] = [ranks(lens, l) if l in lens.layers else None for l in range(n_layers)]
+    return out
+
+
 @torch.no_grad()
 def trace_record(rec: dict, model: nn.Module, tokenizer, prompt: str, lens: JacobianLens | None = None, *, top_k: int = 5) -> dict:
     """:func:`trace` from an existing :func:`record` result."""
     n_blocks, n_heads = rec["attention"].shape[:2]
     r3 = lambda t: [[round(float(v), 4) for v in row] for row in t]
 
-    readouts = {"logit": [_top(lens_logits(model, None, rec["h"][l], l), tokenizer, top_k) for l in range(n_blocks + 1)]}
+    readouts = {"logit": [_top(lens_logits(model, None, rec["h"][l], l, on_device=True), tokenizer, top_k) for l in range(n_blocks + 1)]}
     if lens is not None:
         readouts["jlens"] = [
-            None if l not in lens.layers else _top(lens_logits(model, lens, rec["h"][l], l), tokenizer, top_k)
+            None if l not in lens.layers else _top(lens_logits(model, lens, rec["h"][l], l, on_device=True), tokenizer, top_k)
             for l in range(n_blocks + 1)
         ]
     stay, move = mixing(rec)
-    heads = _shares(rec)  # normalized per query over heads *and* keys, so summing heads gives the combined share
-    heads = heads / heads.sum(dim=(1, 3), keepdim=True).clamp_min(1e-12)
+    n = rec["h"].shape[1]
+    heads = None
+    if n <= HEADS_INLINE_MAX:
+        heads = _shares(rec)  # normalized per query over heads *and* keys, so summing heads gives the combined share
+        heads = heads / heads.sum(dim=(1, 3), keepdim=True).clamp_min(1e-12)
+        heads = [[r3(hq) for hq in hb] for hb in heads]
+    # sparse token mixing: for each block and query, [key, share] pairs above MOVE_MIN
+    move_sparse = [[[[j, round(float(v), 4)] for j, v in enumerate(row[:i]) if v >= MOVE_MIN] for i, row in enumerate(mb.tolist())]
+                   for mb in move]
     final = _top(rec["logits"][-1:], tokenizer, top_k)[0]
     return dict(
         prompt=prompt,
@@ -299,8 +359,7 @@ def trace_record(rec: dict, model: nn.Module, tokenizer, prompt: str, lens: Jaco
         n_blocks=int(n_blocks), n_heads=int(n_heads),
         readouts=readouts,
         resid=r3(rec["h"][:-1].norm(dim=-1)), attn=r3(rec["attn_write"].norm(dim=-1)), mlp=r3(rec["mlp_write"].norm(dim=-1)),
-        stay=r3(stay), move=[r3(m) for m in move],
-        heads=[[r3(hq) for hq in hb] for hb in heads],
+        stay=r3(stay), move=move_sparse, heads=heads,
         output=final,
         contributions=rec["value_norms"] is not None,
         pca=dict(all=layer_pca(rec["h"]), skip_first=layer_pca(rec["h"], skip_first=True)),

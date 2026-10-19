@@ -209,7 +209,12 @@ def steering_vector(model, tokenizer, prompts_a: str | Sequence[str], prompts_b:
 
 
 def word_token(tokenizer, word: str) -> tuple[int, str]:
-    """The single token for ``word``: as typed if it's one token, else with a leading space, else its first token."""
+    """The single token that stands for ``word``.
+
+    ``word`` as typed if it's one token, else with a leading space; otherwise its
+    first token that isn't just whitespace (Gemma writes " 29" as " ", "2", "9",
+    so " 29" becomes "2").
+    """
     forms = [word] if word.startswith(" ") else [word, " " + word]
     for f in forms:
         ids = tokenizer(f, add_special_tokens=False)["input_ids"]
@@ -218,7 +223,8 @@ def word_token(tokenizer, word: str) -> tuple[int, str]:
     ids = tokenizer(word, add_special_tokens=False)["input_ids"]
     if not ids:
         raise ValueError(f"{word!r} has no tokens")
-    return ids[0], _clean(token_str(tokenizer, ids[0]))
+    i = next((t for t in ids if token_str(tokenizer, t).strip()), ids[0])
+    return i, _clean(token_str(tokenizer, i))
 
 
 def word_direction(model, tokenizer, word: str, layer: int, lens: JacobianLens | None = None, *,

@@ -20,8 +20,8 @@ class CharTokenizer:
         t = torch.tensor([ids])
         return {"input_ids": t, "attention_mask": torch.ones_like(t)}
 
-    def decode(self, ids):
-        return "".join("<bos>" if i == 1 else chr(i - 2 + 32) for i in ids)
+    def decode(self, ids, skip_special_tokens=False):
+        return "".join(("" if skip_special_tokens else "<bos>") if i == 1 else "" if i == 0 else chr(i - 2 + 32) for i in ids)
 
 
 def tiny_models():
@@ -409,3 +409,64 @@ def test_cli_accepts_old_serve_flag(monkeypatch):
     main(["gpt2", "--serve", "--no-browser", "--lens", "none", "Hello there"])
     (args, kw), = calls
     assert args == ("gpt2",) and kw["lens"] is None and kw["examples"] == ["Hello there"] and not kw["open_browser"]
+
+
+def test_trace_sparse_move_and_long_prompt_heads():
+    from residual_stream_vis import flow
+
+    model, tok = MODELS["llama"].eval(), CharTokenizer()
+    rec = flow.record(model, tok, "the cat sat")
+    data = flow.trace_record(rec, model, tok, "the cat sat")
+    _, move = flow.mixing(rec)
+    for b in range(3):  # the sparse pairs are exactly the shares above the cut-off
+        for i, pairs in enumerate(data["move"][b]):
+            want = {j: float(move[b, i, j]) for j in range(i) if move[b, i, j] >= flow.MOVE_MIN}
+            assert {j: v for j, v in pairs} == pytest.approx(want, abs=1e-4)
+    assert data["heads"] is not None
+    long_prompt = "a" * (flow.HEADS_INLINE_MAX + 5)
+    long_rec = flow.record(model, tok, long_prompt)
+    assert flow.trace_record(long_rec, model, tok, long_prompt)["heads"] is None
+    h = flow.heads_at(long_rec, 1, 10)
+    assert len(h) == 2 and sum(map(sum, h)) == pytest.approx(1, abs=1e-3)
+
+
+def test_server_generate_track_and_heads():
+    import json, threading, urllib.request
+
+    model, tok = MODELS["gpt2"].eval(), CharTokenizer()
+    server = rsv.server.make_server(model, tok, lens=None, port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    def post(path, body):
+        req = urllib.request.Request(base + path, data=json.dumps(body).encode(), method="POST")
+        return json.loads(urllib.request.urlopen(req).read())
+
+    try:
+        d = post("/api/generate", {"prompt": "the cat", "max_new_tokens": 4})
+        g = d["generated"]
+        assert g["n_new"] == 4 and not g["chat"] and g["start"] == len("the cat") + 1  # + <bos>
+        assert len(d["tokens"]) == g["start"] + 4 and d["prompt"].startswith("the cat")
+        t = post("/api/track", {"prompt": d["prompt"], "word": "a"})
+        assert len(t["logit"]) == 4 and len(t["logit"][2]) == len(d["tokens"]) and min(map(min, t["logit"])) >= 1
+        h = post("/api/heads", {"prompt": d["prompt"], "block": 1, "position": 3})
+        assert len(h["heads"]) == 2 and len(h["heads"][0]) == len(d["tokens"])
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_track_ranks_match_readout(model):
+    from residual_stream_vis import flow
+
+    tok = CharTokenizer()
+    lens = rsv.fit_lens(model, tok, ["the cat sat on a mat"], skip_first=1, progress=False)
+    rec = flow.record(model, tok, "the cat sat")
+    t = flow.track(rec, model, tok, "a", lens)
+    top = flow.trace_record(rec, model, tok, "the cat sat", lens)["readouts"]
+    for lens_name in ("logit", "jlens"):
+        for layer in (1, 3):
+            for pos, r in enumerate(t[lens_name][layer]):
+                words = top[lens_name][layer][pos][0]
+                assert (r == 1) == (words[0] == "a")
+    assert t["jlens"][0] is None

@@ -85,6 +85,22 @@ swap spider → ant at the ` spider` token, layer 8, and the answer goes from
 **What changed** shades every cell by how much it moved: only the edited cell
 and cells above and to the right of it can change.
 
+**Chain of thought.** With an instruction-tuned model, **Generate a response**
+lets the model answer step by step (using its chat template); the grid then
+covers your message and its response. **Track a word** colors every cell by
+how highly a lens ranks one word, so you can see whether the answer is already
+there before the model writes its reasoning:
+
+```bash
+residual-stream-vis google/gemma-3-4b-it      # ~8 GB download; needs a GPU
+```
+
+On Gemma-3-4B-it, for "The Eiffel Tower is in a country. What is the capital of
+that country? Think step by step.", both lenses rank ` Paris` #1 at the newline
+that closes the question (layer 26 of 34), before any of the written steps. The
+same holds for the built-in aunt and ball-in-box questions, but not for "who is
+the shortest?". Track one-token words: Gemma writes numbers digit by digit.
+
 ## Models
 
 Blocks are found automatically for GPT-2, Llama, Mistral, Qwen, Gemma and most

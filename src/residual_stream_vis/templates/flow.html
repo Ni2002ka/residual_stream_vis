@@ -12,6 +12,7 @@
 <style>
 /* Layout: a workbench. Prompt bar on top, the layer × token grid as the main surface, a details rail on the right. */
 :root {
+  --track: #7c3aed;
   --bg: #f4f6f9; --panel: #ffffff; --ink: #172031; --muted: #5a6578; --rule: #d9dfe8; --grid: #e8ecf2;
   --read: #2c55c7; --read-soft: #e2e8fa; --logit: #a8681a; --flow: #0f7f78; --flow-soft: #dcf1ef; --sel: #b0245a; --cell0: #eef1f7;
   --display: "Newsreader", "Iowan Old Style", Georgia, serif;
@@ -21,10 +22,10 @@
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0f141c; --panel: #161d28; --ink: #e6ebf3; --muted: #9aa5b8; --rule: #2a3445; --grid: #1c2532;
-  --read: #85a2ff; --read-soft: #223056; --logit: #e3a857; --flow: #4fd1c5; --flow-soft: #12302e; --sel: #ff73a3; --cell0: #1a2230; color-scheme: dark; } }
+  --read: #85a2ff; --read-soft: #223056; --logit: #e3a857; --flow: #4fd1c5; --flow-soft: #12302e; --sel: #ff73a3; --cell0: #1a2230; --track: #b794f6; color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #0f141c; --panel: #161d28; --ink: #e6ebf3; --muted: #9aa5b8; --rule: #2a3445; --grid: #1c2532;
-  --read: #85a2ff; --read-soft: #223056; --logit: #e3a857; --flow: #4fd1c5; --flow-soft: #12302e; --sel: #ff73a3; --cell0: #1a2230; color-scheme: dark; }
+  --read: #85a2ff; --read-soft: #223056; --logit: #e3a857; --flow: #4fd1c5; --flow-soft: #12302e; --sel: #ff73a3; --cell0: #1a2230; --track: #b794f6; color-scheme: dark; }
 
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); }
@@ -107,6 +108,13 @@ details.explain th, details.explain td { text-align: left; padding: 5px 10px; bo
 details.explain th { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 details.explain code, details.explain pre { font-family: var(--mono); font-size: 0.85em; }
 details.explain pre { background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; margin: 0; overflow-x: auto; }
+.response { background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; font-size: 0.9rem; white-space: pre-wrap; max-height: 14em; overflow: auto; }
+.response b { font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 2px; }
+.trackrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 0.85rem; }
+.trackrow input[type=text] { font: 0.85rem var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 5px; padding: 4px 7px; width: 12ch; }
+.trackrow button { font-size: 0.82rem; background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 5px; padding: 3px 10px; }
+.trackrow .key { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.78rem; }
+.trackrow .key i { display: inline-block; width: 90px; height: 9px; border-radius: 2px; background: linear-gradient(90deg, var(--cell0), var(--track)); }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.78rem; color: var(--muted); align-items: center; }
 .legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
 </style>
@@ -119,12 +127,22 @@ details.explain pre { background: var(--bg); border: 1px solid var(--rule); bord
   </header>
 
   <div class="bar">
+    <div class="controls" id="moderow">
+      <span class="seg" id="runmode" role="group" aria-label="What Run does">
+        <button type="button" data-v="prompt" aria-pressed="true">Run the prompt</button>
+        <button type="button" data-v="generate" aria-pressed="false">Generate a response</button>
+      </span>
+      <label for="usechat" id="usechatlab" hidden><input type="checkbox" id="usechat" checked> Wrap my text in the chat template</label>
+      <label for="maxnew" id="maxnewlab" hidden>Up to <input type="number" id="maxnew" min="1" max="512" value="160" style="width:5em;font:inherit"> new tokens</label>
+      <span class="note" id="modenote"></span>
+    </div>
     <div class="promptrow">
       <label for="prompt" style="position:absolute;left:-9999px">Prompt</label>
       <textarea id="prompt" rows="2" spellcheck="false" placeholder="Type a prompt, then Run (or press Ctrl/⌘-Enter)"></textarea>
       <button class="run" id="run" type="button">Run</button>
     </div>
     <div class="examples" id="examples"></div>
+    <div class="response" id="response" hidden></div>
     <div class="output" id="output"></div>
     <div class="status" id="status" aria-live="polite"></div>
   </div>
@@ -143,6 +161,14 @@ details.explain pre { background: var(--bg); border: 1px solid var(--rule); bord
     </span>
     <label for="sink"><input type="checkbox" id="sink"> Ignore the first token (attention sink)</label>
     <label for="thr">Hide flows under <input type="range" id="thr" min="1" max="20" value="4"> <b id="thrv" style="font-family:var(--mono)">4%</b></label>
+  </div>
+  <div class="trackrow" id="trackrow">
+    <label for="trackword">Track a word in every cell</label>
+    <input type="text" id="trackword" placeholder=" Paris" spellcheck="false">
+    <button type="button" id="trackgo">Track</button>
+    <button type="button" id="trackclear" hidden>Stop tracking</button>
+    <span class="key" id="trackkey" hidden><span>rank 10k+</span><i></i><span>#1</span></span>
+    <span class="note" id="tracknote"></span>
   </div>
   <div class="how">
     <span><b>How to read it.</b> Columns are tokens and rows are layers, with the input at the bottom and the output at the top. Each cell is the model's state for that token at that layer, labeled with the word the lens reads there.</span>
@@ -187,6 +213,9 @@ details.explain pre { background: var(--bg); border: 1px solid var(--rule); bord
         </tbody>
       </table>
       <p>The reason is in how <code>J</code> is measured: it adds up a cell's effect on the top row at its own position <i>and at every later position</i>. So a J-lens direction means "make the rest of the computation treat this as word X". That's what you want when the word is a concept other tokens read, like the animal the question is about. To make <i>this</i> token output a word, the plain unembedding direction is better: the residual connections carry it to the top unchanged.</p>
+      <h3>Reading a chain of thought</h3>
+      <p>With an instruction-tuned model (for example <code>google/gemma-3-4b-it</code>), choose <b>Generate a response</b>: the model answers your message step by step, and the grid covers your message and its whole response (tinted). Then <b>track the answer word</b> to see every cell where a lens ranks it highly. Cells to the <i>left</i> of where the model first writes the answer show what it was already working toward.</p>
+      <p>On Gemma-3-4B-it, for the Eiffel Tower, aunt and ball-in-box examples, both lenses rank the answer #1 at the newline that closes the question, around layer 26 of 34, before the model writes any of its steps. For "who is the shortest?" it doesn't appear until just before it's written. Two cautions: a readout shows what the model is disposed to say, not proof that the written steps are unused (edit a step and rerun to test that), and track one-token words (names usually are; Gemma writes numbers digit by digit).</p>
       <h3>Why the bottom rows show odd words</h3>
       <ul>
         <li><b>Layer 0 is just the input.</b> Each bottom cell is its token's embedding plus a position embedding; no block has run and no information has moved between tokens. There is no next-word prediction in it yet, but a lens always prints its best guess anyway.</li>
@@ -228,14 +257,24 @@ const short = (s, n = 8) => s.length > n ? s.slice(0, n - 1) + "…" : s;
 const mix = (c, a) => `color-mix(in srgb, ${c} ${Math.max(0, Math.min(100, Math.round(a)))}%, var(--cell0))`;
 const S = { T: null, lens: CFG.lens === false ? "logit" : "jlens", mode: "select", sel: null, thr: 0.04, share: null, frac: null, sink: false, stay: null, move: null,
   orig: null, edited: null, edit: null, change: null, view: "change", prompt: "", busy: false,
-  pca: { dims: 2, layer: null, follow: true },
+  pca: { dims: 2, layer: null, follow: true }, runmode: "prompt", track: null, headsCache: {},
   form: { kind: "word", source: "", word: " London", amount: 1, a: "", b: "", damount: 1, dir: "unembed", old: "", neww: "", sdir: "jlens" } };
 
 /* ---------- data prep ---------- */
+function densify(T) {
+  // move arrives as [key, share] pairs per query; turn it into full rows once
+  if (T._dense) return; const n = T.tokens.length;
+  T.move = T.move.map(mb => mb.map(row => { const d = new Float64Array(n); row.forEach(([j, v]) => { d[j] = v; }); return d; }));
+  T._dense = true;
+}
 function prepare(T) {
-  // combined share of the attention write from each key, and the fraction of the update that is attention
-  S.share = T.heads.map(hb => hb[0].map((row, i) => row.map((_, j) => hb.reduce((s, h) => s + h[i][j], 0))));
+  densify(T);
+  // fraction of each update that is attention, and the combined share of the attention write from each key
   S.frac = T.attn.map((row, b) => row.map((a, i) => a / Math.max(1e-12, a + T.resid[b][i])));
+  S.share = T.move.map((mb, b) => mb.map((row, i) => {
+    const f = Math.max(1e-12, S.frac[b][i]), out = Array.from(row, v => v / f);
+    out[i] = Math.max(0, (T.stay[b][i] - (1 - S.frac[b][i])) / f); return out;
+  }));
   if (!T.readouts.jlens) S.lens = "logit";
   mixingView();
 }
@@ -278,7 +317,8 @@ const readout = (layer, pos, lens) => readoutOf(S.T, layer, pos, lens);
 /* ---------- grid ---------- */
 function geometry() {
   const T = S.T, B = T.n_blocks, n = T.tokens.length, compact = B > 16;
-  const g = { colW: 72, cellW: 62, cellH: compact ? 18 : 22, pitch: compact ? 34 : 44, left: 62, top: 14, n, B };
+  const narrow = n > 40;
+  const g = { colW: narrow ? 54 : 72, cellW: narrow ? 48 : 62, cellH: compact ? 18 : 22, pitch: compact ? 34 : 44, left: 62, top: 14, n, B, chars: narrow ? 6 : 8 };
   g.x = p => g.left + p * g.colW; g.y = l => g.top + (B - l) * g.pitch;
   g.W = g.left + n * g.colW + 8; g.H = g.top + (B + 1) * g.pitch + 18;
   return g;
@@ -310,22 +350,36 @@ function render() {
       }
     }
   }
+  // the generated response, if any: a tinted band behind its columns
+  let band = "";
+  const gen = S.orig && S.orig.generated;
+  if (gen && gen.start < n) {
+    const x0 = g.x(gen.start) - 4, x1 = g.x(n - 1) + g.cellW + 4;
+    band = `<rect x="${x0}" y="2" width="${x1 - x0}" height="${g.H - 4}" rx="6" fill="var(--read-soft)" opacity="0.55"/>
+      <text class="lab" x="${x0 + 6}" y="11" style="fill:var(--read);font-weight:600">model's response →</text>`;
+  }
   // cells
   for (let l = 0; l <= B; l++) {
     labels += `<text class="lab" x="${g.left - 8}" y="${g.y(l) + g.cellH / 2 + 4}" text-anchor="end">${l === 0 ? "embed" : l === B ? `${l} out` : l}</text>`;
     for (let p = 0; p < n; p++) {
       const [t, pr] = readout(l, p, S.lens), sel = l === sl && p === sp;
-      let fill, fg = "var(--ink)", op = 1;
+      let fill, fg = "var(--ink)", op = 1, label = null;
       const edited = S.edit && S.view !== "original", isEdit = edited && l === S.edit.layer && p === S.edit.position;
       const changed = edited && readoutOf(S.orig, l, p, S.lens)[0][0] !== t[0];
       if (W) { const v = W[l][p]; fill = v > 0 ? mix("var(--flow)", 10 + 90 * Math.sqrt(Math.min(1, v))) : "var(--cell0)"; if (v > 0.45) fg = "var(--panel)"; if (v < S.thr) op = 0.45; }
+      else if (S.track) {
+        const R = trackRanks(); const r = R && R[l] ? R[l][p] : null;
+        if (r != null) { const a = Math.max(0, 1 - Math.log10(r) / 4); fill = a > 0 ? mix("var(--track)", 6 + 94 * a) : "var(--cell0)"; if (a > 0.62) fg = "var(--panel)"; if (r <= 99) label = "#" + r; if (r > 1000) op = 0.75; }
+        else fill = "var(--cell0)";
+      }
       else if (edited && S.view === "change") { const v = S.change[l][p]; fill = v > 0.002 ? mix("var(--sel)", 10 + 90 * Math.sqrt(Math.min(1, v))) : "var(--cell0)"; if (v > 0.4) fg = "var(--panel)"; if (v <= 0.002) op = 0.6; }
       else { const a = 8 + 92 * Math.sqrt(pr[0]); fill = mix(lensCol, a); if (a > 62) fg = "var(--panel)"; }
       let tip = `${T.tokens[p]} · layer ${l}\n` + t.map((w, k) => `'${w}' ${pct(pr[k], 1)}`).join("\n");
+      if (S.track) { const R = trackRanks(); if (R && R[l]) tip += `\n\n'${S.track.token}' ranks #${R[l][p]} here`; }
       if (edited) tip += `\n\nchanged by ${pct(S.change[l][p], 0)} of its size` + (changed ? `\nbefore the edit: '${readoutOf(S.orig, l, p, S.lens)[0][0]}'` : "");
       cells += `<g class="cell" data-l="${l}" data-p="${p}" opacity="${op}"><title>${esc(tip)}</title>
         <rect x="${g.x(p)}" y="${g.y(l)}" width="${g.cellW}" height="${g.cellH}" rx="3" fill="${fill}" stroke="${sel || isEdit ? "var(--sel)" : "none"}" stroke-width="${sel ? 2.5 : isEdit ? 2 : 0}" ${isEdit && !sel ? 'stroke-dasharray="4 2"' : ""}/>
-        <text x="${g.x(p) + g.cellW / 2}" y="${g.y(l) + g.cellH / 2 + 3.5}" text-anchor="middle" fill="${fg}" style="fill:${fg};font-weight:${changed ? 700 : 400};text-decoration:${changed ? "underline" : "none"}">${esc(short(t[0], 8))}</text>${isEdit ? `<text x="${g.x(p) + g.cellW - 2}" y="${g.y(l) - 2}" text-anchor="end" style="fill:var(--sel);font-size:10px;font-weight:600">edited</text>` : ""}</g>`;
+        <text x="${g.x(p) + g.cellW / 2}" y="${g.y(l) + g.cellH / 2 + 3.5}" text-anchor="middle" fill="${fg}" style="fill:${fg};font-weight:${changed || label ? 700 : 400};text-decoration:${changed ? "underline" : "none"}">${esc(label || short(t[0], g.chars))}</text>${isEdit ? `<text x="${g.x(p) + g.cellW - 2}" y="${g.y(l) - 2}" text-anchor="end" style="fill:var(--sel);font-size:10px;font-weight:600">edited</text>` : ""}</g>`;
     }
   }
   for (let p = 0; p < n; p++) {
@@ -333,7 +387,7 @@ function render() {
     labels += `<text x="${g.x(p) + g.cellW / 2}" y="${g.H - 4}" text-anchor="middle" style="font-weight:500;fill:${T.special[p] ? "var(--muted)" : "var(--ink)"}">${esc(short(tok.replace(/^ /, "␣"), 9))}</text>`;
   }
   const box = $("gridbox"), sx = box.scrollLeft, sy = box.scrollTop, first = !box.querySelector("svg");
-  box.innerHTML = `<svg width="${g.W}" height="${g.H}" viewBox="0 0 ${g.W} ${g.H}" role="img" aria-label="Layer by token grid">${edges}${cells}${labels}</svg>`;
+  box.innerHTML = `<svg width="${g.W}" height="${g.H}" viewBox="0 0 ${g.W} ${g.H}" role="img" aria-label="Layer by token grid">${band}${edges}${cells}${labels}</svg>`;
   if (first) { box.scrollLeft = box.scrollWidth; box.scrollTop = 0; } else { box.scrollLeft = sx; box.scrollTop = sy; }
   box.querySelectorAll(".cell").forEach(c => c.addEventListener("click", () => { S.sel = [+c.dataset.l, +c.dataset.p]; render(); }));
   rail();
@@ -367,10 +421,13 @@ function rail() {
       <p class="note">Sizes are vector lengths. Attention is the only part that moves information between tokens; the MLP works on this token alone.</p>`;
     const sh = S.share[b][p].map((v, j) => [j, v]).filter(([j]) => j <= p).sort((x, y) => y[1] - x[1]).slice(0, 6);
     html += `<h3>Attention write came from</h3>` + sh.map(([j, v]) => `<div class="brow"><span class="w">${j === p ? "itself" : "'" + esc(T.tokens[j]) + "'"} <span style="color:var(--muted)">#${j}</span></span><span class="t"><span style="width:${100 * v}%;background:var(--flow)"></span></span><span class="v">${pct(v, 0)}</span></div>`).join("");
-    const heads = [];
-    T.heads[b].forEach((h, hi) => h[p].forEach((v, j) => { if (j <= p) heads.push([hi, j, v]); }));
-    heads.sort((x, y) => y[2] - x[2]);
-    html += `<h3>Top heads</h3>` + heads.slice(0, 5).map(([hi, j, v]) => `<div class="brow"><span class="w">head ${hi} ← ${j === p ? "itself" : "'" + esc(T.tokens[j]) + "'"}</span><span class="t"><span style="width:${100 * v}%;background:var(--flow)"></span></span><span class="v">${pct(v, 0)}</span></div>`).join("");
+    const H = cellHeads(b, p);
+    if (H) {
+      const heads = [];
+      H.forEach((h, hi) => h.forEach((v, j) => { if (j <= p) heads.push([hi, j, v]); }));
+      heads.sort((x, y) => y[2] - x[2]);
+      html += `<h3>Top heads</h3>` + heads.slice(0, 5).map(([hi, j, v]) => `<div class="brow"><span class="w">head ${hi} ← ${j === p ? "itself" : "'" + esc(T.tokens[j]) + "'"}</span><span class="t"><span style="width:${100 * v}%;background:var(--flow)"></span></span><span class="v">${pct(v, 0)}</span></div>`).join("");
+    } else html += `<h3>Top heads</h3><p class="note">${CFG.live ? "Loading…" : "Not included for long prompts."}</p>`;
     html += `<p class="note">Shares weigh attention by how much each source token actually passes on through the head${T.contributions ? "" : " (this architecture isn't supported for that, so these are raw attention weights)"}.</p></div>`;
   }
   if (S.mode !== "select") {
@@ -437,6 +494,7 @@ async function doEdit() {
 }
 function setView(v) {
   S.view = v; S.T = v === "original" || !S.edit ? S.orig : S.edited; prepare(S.T); outputLine(); editbar(); render();
+  if (S.track && S.track.edited !== !!(S.edit && v !== "original")) doTrack(S.track.word);
 }
 function clearEdit() { S.edit = null; S.edited = null; S.change = null; setView("change"); }
 function editbar() {
@@ -506,7 +564,7 @@ window.addEventListener("load", () => renderPCA());
 
 /* ---------- controls ---------- */
 function setMode(m) { S.mode = m; document.querySelectorAll("#modeseg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === m)); render(); }
-function setLens(v) { S.lens = v; document.querySelectorAll("#lensseg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v)); render(); }
+function setLens(v) { S.lens = v; if (S.track) $("tracknote").textContent = `Coloring every cell by how highly the ${v === "jlens" ? "J-lens" : "logit lens"} ranks '${S.track.token}' (#1 = its top word).`; document.querySelectorAll("#lensseg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v)); render(); }
 document.querySelectorAll("#modeseg button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.v)));
 document.querySelectorAll("#lensseg button").forEach(b => b.addEventListener("click", () => setLens(b.dataset.v)));
 $("sink").addEventListener("change", e => { S.sink = e.target.checked; if (S.T) { mixingView(); render(); } });
@@ -518,7 +576,8 @@ $("gridbox").addEventListener("keydown", e => {
 });
 
 function show(T) {
-  S.orig = T; S.T = T; S.prompt = T.prompt; S.edit = null; S.edited = null; S.change = null; S.view = "change"; prepare(T);
+  S.orig = T; S.T = T; S.prompt = T.prompt; S.edit = null; S.edited = null; S.change = null; S.view = "change"; S.headsCache = {}; prepare(T);
+  showResponse(T); if (S.track) { const w = S.track.word; S.track = null; if (CFG.live) doTrack(w); }
   S.sel = [T.n_blocks, T.tokens.length - 1];
   document.querySelectorAll("#lensseg button").forEach(b => { b.disabled = b.dataset.v === "jlens" && !T.readouts.jlens; b.setAttribute("aria-pressed", b.dataset.v === S.lens); });
   outputLine(); editbar();
@@ -526,13 +585,79 @@ function show(T) {
 }
 async function run() {
   const prompt = $("prompt").value; if (!prompt.trim()) { $("status").textContent = "Type a prompt first."; return; }
-  $("run").disabled = true; $("status").className = "status"; $("status").textContent = "Running the model…";
+  const gen = S.runmode === "generate";
+  $("run").disabled = true; $("status").className = "status"; $("status").textContent = gen ? "Generating a response, then tracing it…" : "Running the model…";
   try {
-    const r = await fetch("/api/trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
+    const body = gen ? { prompt, chat: $("usechat").checked, max_new_tokens: +$("maxnew").value || 160 } : { prompt };
+    const r = await fetch(gen ? "/api/generate" : "/api/trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const T = await r.json(); if (!r.ok) throw new Error(T.error || r.statusText);
     show(T); $("status").textContent = `${T.tokens.length} tokens · ${T.n_blocks} layers · ${T.seconds}s`;
   } catch (e) { $("status").className = "status err"; $("status").textContent = "Couldn't run it: " + e.message; }
   finally { $("run").disabled = false; }
+}
+
+/* ---------- per-head detail (fetched per cell for long prompts) ---------- */
+function cellHeads(b, p) {
+  const T = S.T;
+  if (T.heads) return T.heads[b].map(h => h[p]);
+  const edited = !!(S.edit && S.view !== "original"), key = `${edited}|${b}|${p}`;
+  if (S.headsCache[key]) return S.headsCache[key];
+  if (CFG.live && !S.headsCache[key + "?"]) {
+    S.headsCache[key + "?"] = true;
+    fetch("/api/heads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: S.prompt, block: b, position: p, edited }) })
+      .then(r => r.json()).then(d => { if (d.heads) { S.headsCache[key] = d.heads; if (S.sel[0] - 1 === b && S.sel[1] === p) rail(); } });
+  }
+  return null;
+}
+
+/* ---------- tracking one word across the grid ---------- */
+function trackRanks() {
+  const t = S.track; if (!t) return null;
+  return (S.lens === "jlens" && t.jlens) ? t.jlens.map((row, l) => row || t.logit[l]) : t.logit;
+}
+async function doTrack(word) {
+  word = word ?? $("trackword").value; if (!word.trim() || !S.T) return;
+  const edited = !!(S.edit && S.view !== "original");
+  $("tracknote").textContent = "Tracking…";
+  try {
+    const r = await fetch("/api/track", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: S.prompt, word, edited }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || r.statusText);
+    S.track = { word, token: d.token, logit: d.logit, jlens: d.jlens || null, edited };
+    $("trackclear").hidden = false; $("trackkey").hidden = false;
+    $("tracknote").textContent = `Coloring every cell by how highly the ${S.lens === "jlens" ? "J-lens" : "logit lens"} ranks '${d.token}' (#1 = its top word)${edited ? ", in the edited run" : ""}.` +
+      (d.n_tokens > 1 ? (/^\s*\d/.test(word)
+        ? ` '${word.trim()}' is ${d.n_tokens} digit tokens for this model, so this tracks its first digit, '${d.token}'. A lens only predicts the next token, so a high rank means "about to write a number starting with ${d.token}".`
+        : ` Note: '${word.trim()}' is ${d.n_tokens} tokens for this model, so this tracks only its first token, '${d.token}'.`) : "");
+    render();
+  } catch (e) { $("tracknote").textContent = "Couldn't track it: " + e.message; }
+}
+function clearTrack() { S.track = null; $("trackclear").hidden = true; $("trackkey").hidden = true; $("tracknote").textContent = ""; render(); }
+$("trackgo").addEventListener("click", () => doTrack());
+$("trackword").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doTrack(); } });
+$("trackclear").addEventListener("click", clearTrack);
+
+/* ---------- run modes ---------- */
+function setRunMode(m) {
+  S.runmode = m;
+  document.querySelectorAll("#runmode button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === m));
+  $("maxnewlab").hidden = m !== "generate";
+  $("usechatlab").hidden = m !== "generate" || !CFG.chat;
+  $("modenote").textContent = m === "generate"
+    ? (CFG.chat ? "With the chat template, the model answers your message. Without it, it continues your text exactly as typed: use that to edit a step of an earlier response and let it carry on." : "The model continues your text; the grid then covers the prompt and what it wrote.")
+    : "The grid covers exactly the text you type.";
+  $("run").textContent = m === "generate" ? "Generate" : "Run";
+  const ex = m === "generate" && CFG.chat ? (CFG.chat_examples || []) : (CFG.examples || []);
+  $("examples").innerHTML = `<span>Try:</span>` + ex.map(x => `<button type="button" title="${esc(x)}">${esc(x)}</button>`).join("");
+  $("examples").querySelectorAll("button").forEach(b => b.addEventListener("click", () => { $("prompt").value = b.title; run(); }));
+}
+function showResponse(T) {
+  const g = T.generated, box = $("response");
+  if (!g) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<b>Model's response (${g.n_new} new tokens, tinted in the grid from token ${g.start})</b>${esc(g.text)}
+    <div style="margin-top:6px"><button type="button" id="editcopy" style="font-size:0.8rem;background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:5px;padding:2px 8px">Edit this transcript</button>
+    <span class="note">Puts the full text (template included) in the box, unwrapped, so you can change a step, cut everything after it, and Generate again.</span></div>`;
+  $("editcopy").addEventListener("click", () => { $("prompt").value = T.prompt; $("usechat").checked = false; $("prompt").focus(); });
 }
 
 /* ---------- boot ---------- */
@@ -541,12 +666,13 @@ if (CFG.title) { $("title").textContent = CFG.title; document.title = CFG.title;
 if (CFG.live) {
   $("run").addEventListener("click", run);
   $("prompt").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); run(); } });
-  $("examples").innerHTML = `<span>Try:</span>` + (CFG.examples || []).map(x => `<button type="button" title="${esc(x)}">${esc(x)}</button>`).join("");
-  $("examples").querySelectorAll("button").forEach(b => b.addEventListener("click", () => { $("prompt").value = b.title; run(); }));
+  document.querySelectorAll("#runmode button").forEach(b => b.addEventListener("click", () => setRunMode(b.dataset.v)));
+  setRunMode(CFG.chat ? "generate" : "prompt");
   if (!CFG.lens) document.querySelector('#lensseg [data-v="jlens"]').disabled = true;
-  $("prompt").value = (CFG.examples || [])[0] || ""; if ($("prompt").value) run();
+  if (!CFG.chat) { $("prompt").value = (CFG.examples || [])[0] || ""; if ($("prompt").value) run(); }
+  else $("prompt").value = (CFG.chat_examples || [])[0] || "";
 } else {
-  $("run").hidden = true; $("prompt").readOnly = true;
+  $("run").hidden = true; $("prompt").readOnly = true; $("moderow").hidden = true; $("trackrow").hidden = true;
   const traces = CFG.traces || [];
   $("examples").innerHTML = traces.length > 1 ? `<span>Prompt:</span>` + traces.map((t, i) => `<button type="button" data-i="${i}" title="${esc(t.prompt)}" aria-pressed="${i === 0}">${esc(t.prompt)}</button>`).join("") : "";
   const pick = i => { $("prompt").value = traces[i].prompt; document.querySelectorAll("#examples button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.i === i)); show(traces[i]); };

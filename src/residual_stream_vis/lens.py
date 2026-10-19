@@ -263,10 +263,13 @@ def _output_head(model: nn.Module):
 
 
 @torch.no_grad()
-def lens_logits(model: nn.Module, lens: JacobianLens | None, h: torch.Tensor, layer: int) -> torch.Tensor:
+def lens_logits(model: nn.Module, lens: JacobianLens | None, h: torch.Tensor, layer: int, *,
+                on_device: bool = False) -> torch.Tensor:
     """Vocabulary logits the lens reads from residual vectors ``h`` (``(..., d_model)``) at ``layer``.
 
     ``lens=None`` gives the logit lens (no transport), the usual baseline.
+    ``on_device=True`` leaves the result on the model's device, which saves a large
+    copy when only the top words or one word's rank are needed.
     """
     norm, w_u, softcap = _output_head(model)
     J = lens.matrix(layer) if lens is not None else None
@@ -274,7 +277,7 @@ def lens_logits(model: nn.Module, lens: JacobianLens | None, h: torch.Tensor, la
     logits = (norm(x.to(w_u.device, w_u.dtype)) @ w_u.T).float()
     if softcap:
         logits = softcap * torch.tanh(logits / softcap)
-    return logits.cpu()
+    return logits if on_device else logits.cpu()
 
 
 def _clean(token: str) -> str:
