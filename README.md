@@ -153,3 +153,9 @@ so fitted and published lenses are interchangeable. The method is from
 
 The tests build tiny random GPT-2, Llama and Gemma-3 models, so they run
 offline in seconds.
+
+
+## TLDR good resources:
+* https://www.neuronpedia.org/gemma-3-1b/jlens
+* https://huggingface.co/neuronpedia/jacobian-lens
+* https://huggingface.co/blog/dlouapre/j-space
