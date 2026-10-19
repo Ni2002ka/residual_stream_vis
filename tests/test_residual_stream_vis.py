@@ -470,3 +470,22 @@ def test_track_ranks_match_readout(model):
                 words = top[lens_name][layer][pos][0]
                 assert (r == 1) == (words[0] == "a")
     assert t["jlens"][0] is None
+
+
+def test_word_token_prefers_the_leading_space_form():
+    from residual_stream_vis.edit import word_token
+
+    class Tok:  # " Paris" and "Paris" are both single tokens; " 7" is two, "7" is one
+        vocab = {" Paris": 1, "Paris": 2, "7": 3, " ": 4}
+        def __call__(self, text, add_special_tokens=True):
+            return {"input_ids": [self.vocab[text]] if text in self.vocab else [self.vocab[" "], self.vocab[text.strip()]]}
+    token_str = {1: " Paris", 2: "Paris", 3: "7", 4: " "}
+    import residual_stream_vis.edit as E
+    orig = E.token_str
+    E.token_str = lambda tok, i: token_str[i]
+    try:
+        assert word_token(Tok(), "Paris") == (1, " Paris")
+        assert word_token(Tok(), "7") == (3, "7")
+        assert word_token(Tok(), " 7") == (3, "7")
+    finally:
+        E.token_str = orig
