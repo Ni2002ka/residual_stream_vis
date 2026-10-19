@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "residual-stream-vis"
+dynamic = ["version"]
+description = "Trace a prompt through a Hugging Face language model in your browser: read every layer with the J-lens, follow attention between tokens, and edit the residual stream."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "transformers>=4.56",
+    "plotly>=5.18",  # its bundled plotly.js draws the PCA panel, so the page works offline
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+residual-stream-vis = "residual_stream_vis.__main__:main"
+
+[tool.hatch.version]
+path = "src/residual_stream_vis/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/residual_stream_vis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

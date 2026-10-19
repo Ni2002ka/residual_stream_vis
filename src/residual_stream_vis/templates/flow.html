@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Residual Stream Flow</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,600&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<!--RSV_PLOTLY-->
+<style>
+/* Layout: a workbench. Prompt bar on top, the layer × token grid as the main surface, a details rail on the right. */
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --ink: #172031; --muted: #5a6578; --rule: #d9dfe8; --grid: #e8ecf2;
+  --read: #2c55c7; --read-soft: #e2e8fa; --logit: #a8681a; --flow: #0f7f78; --flow-soft: #dcf1ef; --sel: #b0245a; --cell0: #eef1f7;
+  --display: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141c; --panel: #161d28; --ink: #e6ebf3; --muted: #9aa5b8; --rule: #2a3445; --grid: #1c2532;
+  --read: #85a2ff; --read-soft: #223056; --logit: #e3a857; --flow: #4fd1c5; --flow-soft: #12302e; --sel: #ff73a3; --cell0: #1a2230; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f141c; --panel: #161d28; --ink: #e6ebf3; --muted: #9aa5b8; --rule: #2a3445; --grid: #1c2532;
+  --read: #85a2ff; --read-soft: #223056; --logit: #e3a857; --flow: #4fd1c5; --flow-soft: #12302e; --sel: #ff73a3; --cell0: #1a2230; color-scheme: dark; }
+
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); }
+.wrap { max-width: 1480px; margin: 0 auto; padding-block: 22px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+h1 { font-family: var(--display); font-weight: 600; font-size: 1.75rem; margin: 0; letter-spacing: -0.01em; }
+.chip { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); border: 1px solid var(--rule); border-radius: 99px; padding: 1px 10px; }
+.bar { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; display: grid; gap: 10px; }
+.promptrow { display: flex; gap: 10px; align-items: stretch; }
+textarea { flex: 1; min-width: 0; font: 0.95rem/1.5 var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; resize: vertical; min-height: 2.6em; }
+button { font: inherit; cursor: pointer; }
+.run { background: var(--ink); color: var(--panel); border: 0; border-radius: 6px; padding: 0 18px; font-weight: 600; }
+.run:disabled { opacity: 0.5; cursor: wait; }
+.examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.82rem; color: var(--muted); }
+.examples button { font-size: 0.8rem; background: transparent; color: var(--ink); border: 1px solid var(--rule); border-radius: 5px; padding: 2px 8px; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.examples button[aria-pressed="true"] { border-color: var(--read); color: var(--read); }
+.status { font-size: 0.82rem; color: var(--muted); }
+.status.err { color: var(--sel); }
+.output { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; font-size: 0.88rem; }
+.output b { font-weight: 600; }
+.tok { font-family: var(--mono); font-size: 0.86em; background: var(--grid); padding: 1px 5px; border-radius: 3px; white-space: pre; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; font-size: 0.85rem; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.seg button { background: var(--panel); color: var(--ink); border: 0; padding: 4px 11px; font-size: 0.84rem; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+.seg button:disabled { opacity: 0.4; cursor: not-allowed; }
+input[type=range] { accent-color: var(--flow); width: 130px; vertical-align: middle; }
+button:focus-visible, textarea:focus-visible, input:focus-visible, .gridbox:focus-visible { outline: 2px solid var(--sel); outline-offset: 2px; }
+
+.how { font-size: 0.86rem; color: var(--muted); display: grid; gap: 3px; max-width: 120ch; }
+.how b { color: var(--ink); font-weight: 600; }
+
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+@media (max-width: 980px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.gridbox { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; overflow: auto; max-height: calc(100vh - 120px); min-height: 200px; position: relative; }
+.gridbox svg { display: block; }
+svg text { font-family: var(--mono); font-size: 10.5px; fill: var(--ink); }
+svg .lab { font-family: var(--body); font-size: 11px; fill: var(--muted); }
+svg .cell { cursor: pointer; }
+.empty { padding: 40px 20px; color: var(--muted); text-align: center; }
+
+.rail { display: grid; gap: 12px; position: sticky; top: env(safe-area-inset-top, 0px); }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.card h2 { margin: 0; font-family: var(--display); font-size: 1.15rem; font-weight: 600; }
+.card h3 { margin: 4px 0 0; font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.card p { margin: 0; font-size: 0.84rem; }
+.note { font-size: 0.78rem; color: var(--muted); }
+.brow { display: grid; grid-template-columns: minmax(0, 7.5em) minmax(0, 1fr) 3.6em; gap: 8px; align-items: center; font-size: 0.8rem; }
+.brow .w { font-family: var(--mono); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.brow .t { height: 9px; background: var(--grid); border-radius: 2px; overflow: hidden; }
+.brow .t span { display: block; height: 100%; }
+.brow .v { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.btns button { font-size: 0.8rem; background: var(--panel); color: var(--ink); border: 1px solid var(--rule); border-radius: 5px; padding: 3px 9px; }
+.btns button[aria-pressed="true"] { border-color: var(--flow); color: var(--flow); font-weight: 600; }
+.editbar { background: var(--panel); border: 1px solid var(--sel); border-radius: 8px; padding: 10px 14px; display: grid; gap: 8px; font-size: 0.88rem; }
+.editbar .row { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+.editbar .lbl { font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--sel); font-weight: 600; }
+.arrow { color: var(--muted); }
+.field { display: grid; gap: 4px; font-size: 0.8rem; }
+.field input[type=text], .field textarea { font: 0.85rem/1.4 var(--mono); color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 5px; padding: 5px 7px; width: 100%; box-sizing: border-box; }
+.field textarea { resize: vertical; min-height: 3.2em; }
+.go { background: var(--sel); color: var(--panel); border: 0; border-radius: 5px; padding: 6px 12px; font-weight: 600; font-size: 0.85rem; justify-self: start; }
+.go:disabled { opacity: 0.5; cursor: wait; }
+.pcabox { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; display: grid; gap: 10px; min-width: 0; }
+.pcabox h2 { margin: 0; font-family: var(--display); font-size: 1.2rem; font-weight: 600; }
+#pcaplot { width: 100%; height: 480px; }
+details.explain { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 14px; font-size: 0.9rem; }
+details.explain summary { cursor: pointer; font-weight: 600; }
+details.explain .body { display: grid; gap: 12px; padding-top: 10px; max-width: 92ch; }
+details.explain h3 { margin: 6px 0 0; font-family: var(--display); font-size: 1.05rem; font-weight: 600; }
+details.explain p, details.explain li { margin: 0; color: var(--ink); }
+details.explain ul { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+details.explain table { border-collapse: collapse; font-size: 0.86rem; }
+details.explain th, details.explain td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+details.explain th { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+details.explain code, details.explain pre { font-family: var(--mono); font-size: 0.85em; }
+details.explain pre { background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; margin: 0; overflow-x: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.78rem; color: var(--muted); align-items: center; }
+.legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="title">Residual Stream Flow</h1>
+    <span class="chip" id="modelchip"></span>
+  </header>
+
+  <div class="bar">
+    <div class="promptrow">
+      <label for="prompt" style="position:absolute;left:-9999px">Prompt</label>
+      <textarea id="prompt" rows="2" spellcheck="false" placeholder="Type a prompt, then Run (or press Ctrl/⌘-Enter)"></textarea>
+      <button class="run" id="run" type="button">Run</button>
+    </div>
+    <div class="examples" id="examples"></div>
+    <div class="output" id="output"></div>
+    <div class="status" id="status" aria-live="polite"></div>
+  </div>
+
+  <div class="controls">
+    <span>Cell text</span>
+    <span class="seg" id="lensseg" role="group" aria-label="Lens for cell text">
+      <button type="button" data-v="jlens">J-lens</button>
+      <button type="button" data-v="logit">Logit lens</button>
+    </span>
+    <span>Show</span>
+    <span class="seg" id="modeseg" role="group" aria-label="Flow view">
+      <button type="button" data-v="select" aria-pressed="true">Into this cell</button>
+      <button type="button" data-v="back">Trace back to input</button>
+      <button type="button" data-v="forward">Trace forward</button>
+    </span>
+    <label for="sink"><input type="checkbox" id="sink"> Ignore the first token (attention sink)</label>
+    <label for="thr">Hide flows under <input type="range" id="thr" min="1" max="20" value="4"> <b id="thrv" style="font-family:var(--mono)">4%</b></label>
+  </div>
+  <div class="how">
+    <span><b>How to read it.</b> Columns are tokens and rows are layers, with the input at the bottom and the output at the top. Each cell is the model's state for that token at that layer, labeled with the word the lens reads there.</span>
+    <span><b>Into this cell</b> shows what one block pulled into the selected cell. Curved lines are attention bringing information from earlier tokens; the straight line is what the token kept from itself. <b>Trace back</b> follows everything in the selected cell back to the input. <b>Trace forward</b> shows where one cell's information ends up. Click any cell, or use the arrow keys.</span>
+  </div>
+
+  <details class="explain" id="explain">
+    <summary>How the lenses work, and why some cells show odd words</summary>
+    <div class="body">
+      <h3>What the word in a cell means</h3>
+      <p>The model turns a vector into words only once, at the very end: it takes the top cell of a column, applies a final normalization, and multiplies by the <b>unembedding</b>, a matrix with one row per vocabulary word. That gives every word a score (the <i>logits</i>), and the highest is the predicted next word. Every column does this for the word that follows it, which is why the top row reads one word ahead (the <code>el</code> column says <code> Tower</code>).</p>
+      <p>A lens borrows that final step and uses it on a <i>middle</i> cell, as if the model had stopped there and had to answer. So the word in a cell answers one question: <i>"if the model had to say the next word from this vector, which word would it pick?"</i> It is not a description of everything in the vector.</p>
+      <h3>Logit lens, J-lens and the model</h3>
+      <p>The residual stream is a running sum: each layer adds to it and nothing is overwritten.</p>
+      <pre>top cell  =  cell at layer l  +  everything layers l+1 … top add</pre>
+      <table>
+        <thead><tr><th></th><th>What it decodes</th><th>What it assumes</th></tr></thead>
+        <tbody>
+          <tr><td><b>Logit lens</b></td><td>the cell at layer l</td><td>the layers above add nothing that matters (drop the second term)</td></tr>
+          <tr><td><b>J-lens</b></td><td><code>J · cell</code></td><td>the layers above respond to this cell in their average, linear way</td></tr>
+          <tr><td><b>The model</b></td><td>the top cell</td><td>nothing: the real layers ran</td></tr>
+        </tbody>
+      </table>
+      <p>The logit lens is the J-lens with <code>J</code> set to the identity matrix, and at the top layer all three are the same. The logit lens works at all because every layer writes into the same space, so once a middle layer has written "Paris" into a cell it can be read straight away. It fails early because early cells mostly hold things meant for later layers (which token this is, its position, grammar), not finished predictions.</p>
+      <h3>What the J-lens leaves out</h3>
+      <ul>
+        <li><b>It's an average.</b> <code>J</code> was measured once, on ordinary web text: how the top row moves when this layer's cell is nudged. It isn't this prompt's computation.</li>
+        <li><b>It's linear.</b> One matrix stands in for many nonlinear layers, like a tangent line standing in for a curve.</li>
+        <li><b>It only carries what's already in the cell.</b> The real layers above keep pulling in information from other tokens; the J-lens can't add what isn't there yet. In the Eiffel prompt it reads <code> Constantinople</code> at layer 8 ("a city goes here"); <code> Paris</code> only arrives once later layers bring in more from the "Eiffel Tower" columns.</li>
+      </ul>
+      <p>To see real propagation instead of an estimate, edit a cell and rerun: that runs every layer above.</p>
+      <h3>Which direction to edit with</h3>
+      <p>Every word has two directions you can push a cell along: its <b>logit-lens direction</b> (its row of the unembedding) and its <b>J-lens direction</b> (that row pulled back through <code>J</code>). They're good at different edits:</p>
+      <table>
+        <thead><tr><th>Edit</th><th>Logit-lens direction</th><th>J-lens direction</th></tr></thead>
+        <tbody>
+          <tr><td>Push the last token of the Eiffel prompt toward <code> London</code> (Gemma, layer 8)</td><td><b>London 100%</b></td><td>London 0%</td></tr>
+          <tr><td>Same, GPT-2, layer 6</td><td><b>London 100%</b></td><td>London 11%</td></tr>
+          <tr><td>Swap the animal at its own token in "How many legs does a … have?" (Gemma, 24 pairs of animals it answers correctly, layer 6)</td><td>1 / 24 give the new animal's count</td><td><b>6 / 24</b></td></tr>
+          <tr><td>Same, layer 8</td><td>0 / 24</td><td><b>5 / 24</b></td></tr>
+          <tr><td>Same, 80 pairs, layer 8 (<code>experiments/animal_swap.py</code>)</td><td>0 / 80</td><td><b>32 / 80</b> (random directions: 1 / 80)</td></tr>
+        </tbody>
+      </table>
+      <p>The reason is in how <code>J</code> is measured: it adds up a cell's effect on the top row at its own position <i>and at every later position</i>. So a J-lens direction means "make the rest of the computation treat this as word X". That's what you want when the word is a concept other tokens read, like the animal the question is about. To make <i>this</i> token output a word, the plain unembedding direction is better: the residual connections carry it to the top unchanged.</p>
+      <h3>Why the bottom rows show odd words</h3>
+      <ul>
+        <li><b>Layer 0 is just the input.</b> Each bottom cell is its token's embedding plus a position embedding; no block has run and no information has moved between tokens. There is no next-word prediction in it yet, but a lens always prints its best guess anyway.</li>
+        <li><b>The guesses there are leftovers.</b> Words like <code>theless</code> (the tail of "nevertheless"), <code>ModLoader</code> (a Minecraft tool's name) or <code> tremend</code> are rarely-predicted tokens whose vectors sit near the common, average direction most cells share. When there's no real prediction, they win. In GPT-2, <code>ModLoader</code> is the J-lens's top word for about a quarter of ordinary tokens at layer 1 and none from layer 7 up.</li>
+        <li><b>A high percentage doesn't make it real.</b> <code>theless</code> gets 54% on the first token, which only means one junk word beat the others. Trust a readout once it's a plausible next word and holds steady over a few layers.</li>
+        <li><b>Information only moves left to right.</b> Attention lets a cell pull from earlier tokens, never later ones, so the first column only ever sees itself. Models often park attention there (the "attention sink").</li>
+      </ul>
+    </div>
+  </details>
+  <div class="editbar" id="editbar" hidden></div>
+  <div class="main">
+    <div class="gridbox" id="gridbox" tabindex="0" aria-label="Layer by token grid; arrow keys move the selection"><div class="empty">Run a prompt to see its flow.</div></div>
+    <div class="rail" id="rail"></div>
+  </div>
+
+  <section class="pcabox" id="pcabox" hidden>
+    <div style="display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;justify-content:space-between">
+      <h2>Where the tokens sit: PCA of layer <span id="pcalayer"></span></h2>
+      <div class="controls">
+        <span class="seg" id="pcadims" role="group" aria-label="Number of components">
+          <button type="button" data-v="2" aria-pressed="true">2D</button>
+          <button type="button" data-v="3" aria-pressed="false">3D</button>
+        </span>
+        <label for="pcaslider">Layer <input type="range" id="pcaslider" min="0" max="12" value="12"></label>
+        <label for="pcafollow"><input type="checkbox" id="pcafollow" checked> Follow the selected cell</label>
+      </div>
+    </div>
+    <div id="pcaplot" role="img" aria-label="Token vectors at one layer projected onto their top principal components"></div>
+    <p class="note" id="pcanote"></p>
+  </section>
+</div>
+
+<script>
+const CFG = /*RSV_CONFIG*/{};
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const pct = (v, d = 0) => (100 * v).toFixed(d) + "%";
+const short = (s, n = 8) => s.length > n ? s.slice(0, n - 1) + "…" : s;
+const mix = (c, a) => `color-mix(in srgb, ${c} ${Math.max(0, Math.min(100, Math.round(a)))}%, var(--cell0))`;
+const S = { T: null, lens: CFG.lens === false ? "logit" : "jlens", mode: "select", sel: null, thr: 0.04, share: null, frac: null, sink: false, stay: null, move: null,
+  orig: null, edited: null, edit: null, change: null, view: "change", prompt: "", busy: false,
+  pca: { dims: 2, layer: null, follow: true },
+  form: { kind: "word", source: "", word: " London", amount: 1, a: "", b: "", damount: 1, dir: "unembed", old: "", neww: "", sdir: "jlens" } };
+
+/* ---------- data prep ---------- */
+function prepare(T) {
+  // combined share of the attention write from each key, and the fraction of the update that is attention
+  S.share = T.heads.map(hb => hb[0].map((row, i) => row.map((_, j) => hb.reduce((s, h) => s + h[i][j], 0))));
+  S.frac = T.attn.map((row, b) => row.map((a, i) => a / Math.max(1e-12, a + T.resid[b][i])));
+  if (!T.readouts.jlens) S.lens = "logit";
+  mixingView();
+}
+// The mixing actually drawn: optionally drop attention to the first token and renormalize each row.
+function mixingView() {
+  const T = S.T;
+  if (!S.sink) { S.stay = T.stay; S.move = T.move; return; }
+  S.stay = T.stay.map(r => r.slice()); S.move = T.move.map(b => b.map(r => r.slice()));
+  for (let b = 0; b < T.n_blocks; b++) for (let i = 1; i < T.tokens.length; i++) {
+    const row = S.move[b][i], drop = row[0]; row[0] = 0;
+    const keep = 1 - drop; if (keep <= 1e-9) continue;
+    S.stay[b][i] /= keep; for (let j = 1; j < i; j++) row[j] /= keep;
+  }
+}
+function weights(layer, pos, dir) {
+  const T = S.T, B = T.n_blocks, n = T.tokens.length;
+  const w = Array.from({ length: B + 1 }, () => new Float64Array(n));
+  w[layer][pos] = 1;
+  if (dir === "back") {
+    for (let b = layer - 1; b >= 0; b--) for (let i = 0; i < n; i++) {
+      const x = w[b + 1][i]; if (!x) continue;
+      w[b][i] += x * S.stay[b][i];
+      const m = S.move[b][i]; for (let j = 0; j < i; j++) w[b][j] += x * m[j];
+    }
+  } else {
+    for (let b = layer; b < B; b++) for (let i = 0; i < n; i++) {
+      let s = w[b][i] * S.stay[b][i]; const m = S.move[b][i];
+      for (let j = 0; j < i; j++) s += m[j] * w[b][j];
+      w[b + 1][i] = s;
+    }
+  }
+  return w;
+}
+function readoutOf(T, layer, pos, lens) {
+  const R = T.readouts[lens]; const r = R && R[layer] ? R[layer][pos] : null;
+  return r || T.readouts.logit[layer][pos];
+}
+const readout = (layer, pos, lens) => readoutOf(S.T, layer, pos, lens);
+
+/* ---------- grid ---------- */
+function geometry() {
+  const T = S.T, B = T.n_blocks, n = T.tokens.length, compact = B > 16;
+  const g = { colW: 72, cellW: 62, cellH: compact ? 18 : 22, pitch: compact ? 34 : 44, left: 62, top: 14, n, B };
+  g.x = p => g.left + p * g.colW; g.y = l => g.top + (B - l) * g.pitch;
+  g.W = g.left + n * g.colW + 8; g.H = g.top + (B + 1) * g.pitch + 18;
+  return g;
+}
+function edge(g, b, j, i, width, color, opacity) {
+  const x1 = g.x(j) + g.cellW / 2, y1 = g.y(b), x2 = g.x(i) + g.cellW / 2, y2 = g.y(b + 1) + g.cellH, my = (y1 + y2) / 2;
+  if (i === j) return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${width.toFixed(2)}" stroke-opacity="${opacity}" stroke-linecap="round"/>`;
+  return `<path d="M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}" fill="none" stroke="${color}" stroke-width="${width.toFixed(2)}" stroke-opacity="${opacity}" stroke-linecap="round"/>`;
+}
+function render() {
+  const T = S.T; if (!T) return;
+  const g = geometry(), [sl, sp] = S.sel, B = T.n_blocks, n = T.tokens.length, lensCol = S.lens === "jlens" ? "var(--read)" : "var(--logit)";
+  const W = S.mode === "select" ? null : weights(sl, sp, S.mode);
+  let edges = "", cells = "", labels = "";
+  // edges
+  if (S.mode === "select" && sl > 0) {
+    const b = sl - 1, i = sp;
+    edges += edge(g, b, i, i, 1 + 9 * S.stay[b][i], "var(--muted)", 0.75);
+    for (let j = 0; j < i; j++) { const v = S.move[b][i][j]; if (v >= S.thr) edges += edge(g, b, j, i, 1 + 14 * v, "var(--flow)", 0.85); }
+  } else if (W) {
+    for (let b = 0; b < B; b++) for (let i = 0; i < n; i++) {
+      if (S.mode === "back") {
+        const x = W[b + 1][i]; if (x < S.thr) continue;
+        const st = x * S.stay[b][i]; if (st >= S.thr) edges += edge(g, b, i, i, 1 + 10 * st, "var(--muted)", 0.55);
+        for (let j = 0; j < i; j++) { const v = x * S.move[b][i][j]; if (v >= S.thr) edges += edge(g, b, j, i, 1 + 14 * v, "var(--flow)", 0.8); }
+      } else {
+        const st = W[b][i] * S.stay[b][i]; if (st >= S.thr) edges += edge(g, b, i, i, 1 + 10 * st, "var(--muted)", 0.55);
+        for (let j = 0; j < i; j++) { const v = W[b][j] * S.move[b][i][j]; if (v >= S.thr) edges += edge(g, b, j, i, 1 + 14 * v, "var(--flow)", 0.8); }
+      }
+    }
+  }
+  // cells
+  for (let l = 0; l <= B; l++) {
+    labels += `<text class="lab" x="${g.left - 8}" y="${g.y(l) + g.cellH / 2 + 4}" text-anchor="end">${l === 0 ? "embed" : l === B ? `${l} out` : l}</text>`;
+    for (let p = 0; p < n; p++) {
+      const [t, pr] = readout(l, p, S.lens), sel = l === sl && p === sp;
+      let fill, fg = "var(--ink)", op = 1;
+      const edited = S.edit && S.view !== "original", isEdit = edited && l === S.edit.layer && p === S.edit.position;
+      const changed = edited && readoutOf(S.orig, l, p, S.lens)[0][0] !== t[0];
+      if (W) { const v = W[l][p]; fill = v > 0 ? mix("var(--flow)", 10 + 90 * Math.sqrt(Math.min(1, v))) : "var(--cell0)"; if (v > 0.45) fg = "var(--panel)"; if (v < S.thr) op = 0.45; }
+      else if (edited && S.view === "change") { const v = S.change[l][p]; fill = v > 0.002 ? mix("var(--sel)", 10 + 90 * Math.sqrt(Math.min(1, v))) : "var(--cell0)"; if (v > 0.4) fg = "var(--panel)"; if (v <= 0.002) op = 0.6; }
+      else { const a = 8 + 92 * Math.sqrt(pr[0]); fill = mix(lensCol, a); if (a > 62) fg = "var(--panel)"; }
+      let tip = `${T.tokens[p]} · layer ${l}\n` + t.map((w, k) => `'${w}' ${pct(pr[k], 1)}`).join("\n");
+      if (edited) tip += `\n\nchanged by ${pct(S.change[l][p], 0)} of its size` + (changed ? `\nbefore the edit: '${readoutOf(S.orig, l, p, S.lens)[0][0]}'` : "");
+      cells += `<g class="cell" data-l="${l}" data-p="${p}" opacity="${op}"><title>${esc(tip)}</title>
+        <rect x="${g.x(p)}" y="${g.y(l)}" width="${g.cellW}" height="${g.cellH}" rx="3" fill="${fill}" stroke="${sel || isEdit ? "var(--sel)" : "none"}" stroke-width="${sel ? 2.5 : isEdit ? 2 : 0}" ${isEdit && !sel ? 'stroke-dasharray="4 2"' : ""}/>
+        <text x="${g.x(p) + g.cellW / 2}" y="${g.y(l) + g.cellH / 2 + 3.5}" text-anchor="middle" fill="${fg}" style="fill:${fg};font-weight:${changed ? 700 : 400};text-decoration:${changed ? "underline" : "none"}">${esc(short(t[0], 8))}</text>${isEdit ? `<text x="${g.x(p) + g.cellW - 2}" y="${g.y(l) - 2}" text-anchor="end" style="fill:var(--sel);font-size:10px;font-weight:600">edited</text>` : ""}</g>`;
+    }
+  }
+  for (let p = 0; p < n; p++) {
+    const tok = T.tokens[p].replace(/\n/g, "⏎");
+    labels += `<text x="${g.x(p) + g.cellW / 2}" y="${g.H - 4}" text-anchor="middle" style="font-weight:500;fill:${T.special[p] ? "var(--muted)" : "var(--ink)"}">${esc(short(tok.replace(/^ /, "␣"), 9))}</text>`;
+  }
+  const box = $("gridbox"), sx = box.scrollLeft, sy = box.scrollTop, first = !box.querySelector("svg");
+  box.innerHTML = `<svg width="${g.W}" height="${g.H}" viewBox="0 0 ${g.W} ${g.H}" role="img" aria-label="Layer by token grid">${edges}${cells}${labels}</svg>`;
+  if (first) { box.scrollLeft = box.scrollWidth; box.scrollTop = 0; } else { box.scrollLeft = sx; box.scrollTop = sy; }
+  box.querySelectorAll(".cell").forEach(c => c.addEventListener("click", () => { S.sel = [+c.dataset.l, +c.dataset.p]; render(); }));
+  rail();
+  renderPCA();
+}
+
+/* ---------- details rail ---------- */
+function bars(t, p, col) {
+  return t.map((w, i) => `<div class="brow"><span class="w">'${esc(w)}'</span><span class="t"><span style="width:${100 * p[i]}%;background:${col}"></span></span><span class="v">${pct(p[i], 1)}</span></div>`).join("");
+}
+function rail() {
+  const T = S.T, [l, p] = S.sel, tok = T.tokens[p], B = T.n_blocks;
+  let html = `<div class="card"><h2>${esc(tok.replace(/^ /, "␣").replace(/\n/g, "⏎"))} <span class="note" style="font-family:var(--body);font-size:0.8rem">token ${p} · layer ${l}${l === B ? " (output)" : l === 0 ? " (embedding)" : ""}</span></h2>
+    <div class="btns">${[["select", "Into this cell"], ["back", "Trace back"], ["forward", "Trace forward"]].map(([v, lab]) => `<button type="button" data-mode="${v}" aria-pressed="${S.mode === v}">${lab}</button>`).join("")}</div>`;
+  const lenses = l === B ? [["logit", "Model's output", "var(--ink)"]]
+    : T.readouts.jlens && T.readouts.jlens[l] ? [["jlens", "J-lens reads", "var(--read)"], ["logit", "Logit lens reads", "var(--logit)"]] : [["logit", "Logit lens reads", "var(--logit)"]];
+  lenses.forEach(([k, lab, col]) => {
+    const [t, pr] = T.readouts[k][l][p]; html += `<h3 style="color:${col}">${lab}${S.edit && S.view !== "original" ? " (edited run)" : ""}</h3>${bars(t, pr, col)}`;
+    if (S.edit && S.view !== "original") { const [t0, p0] = readoutOf(S.orig, l, p, k); html += `<p class="note">Before the edit: '${esc(t0[0])}' ${pct(p0[0], 1)}${t0[0] !== t[0] ? " (top word changed)" : ""}.</p>`; }
+  });
+  if (l === 0) html += `<p class="note">Layer 0 is the token's embedding, before any block has run. The J-lens starts at layer 1.</p>`;
+  if (l === B) html += `<p class="note">This is the top layer, where the model makes its real prediction. Both lenses read exactly this here: there are no layers left above for the J-lens to account for. Click a lower cell to compare the two lenses.</p>`;
+  html += `</div>`;
+  if (CFG.live) html += editCard(l, p);
+  if (l > 0) {
+    const b = l - 1, r = T.resid[b][p], a = T.attn[b][p], m = T.mlp[b][p], mx = Math.max(r, a, m);
+    const sizeRow = (lab, v, col) => `<div class="brow"><span class="w" style="font-family:var(--body)">${lab}</span><span class="t"><span style="width:${100 * v / mx}%;background:${col}"></span></span><span class="v">${v.toFixed(1)}</span></div>`;
+    html += `<div class="card"><h3>What block ${b} did here</h3>
+      <p>The cell below held a vector of size ${r.toFixed(1)}. This block added an attention write and an MLP write:</p>
+      ${sizeRow("kept (residual)", r, "var(--muted)")}${sizeRow("+ attention", a, "var(--flow)")}${sizeRow("+ MLP", m, "var(--logit)")}
+      <p class="note">Sizes are vector lengths. Attention is the only part that moves information between tokens; the MLP works on this token alone.</p>`;
+    const sh = S.share[b][p].map((v, j) => [j, v]).filter(([j]) => j <= p).sort((x, y) => y[1] - x[1]).slice(0, 6);
+    html += `<h3>Attention write came from</h3>` + sh.map(([j, v]) => `<div class="brow"><span class="w">${j === p ? "itself" : "'" + esc(T.tokens[j]) + "'"} <span style="color:var(--muted)">#${j}</span></span><span class="t"><span style="width:${100 * v}%;background:var(--flow)"></span></span><span class="v">${pct(v, 0)}</span></div>`).join("");
+    const heads = [];
+    T.heads[b].forEach((h, hi) => h[p].forEach((v, j) => { if (j <= p) heads.push([hi, j, v]); }));
+    heads.sort((x, y) => y[2] - x[2]);
+    html += `<h3>Top heads</h3>` + heads.slice(0, 5).map(([hi, j, v]) => `<div class="brow"><span class="w">head ${hi} ← ${j === p ? "itself" : "'" + esc(T.tokens[j]) + "'"}</span><span class="t"><span style="width:${100 * v}%;background:var(--flow)"></span></span><span class="v">${pct(v, 0)}</span></div>`).join("");
+    html += `<p class="note">Shares weigh attention by how much each source token actually passes on through the head${T.contributions ? "" : " (this architecture isn't supported for that, so these are raw attention weights)"}.</p></div>`;
+  }
+  if (S.mode !== "select") {
+    const W = weights(l, p, S.mode), tops = [];
+    if (S.mode === "back") W[0].forEach((v, j) => tops.push([j, v]));
+    else W[B].forEach((v, j) => tops.push([j, v]));
+    tops.sort((x, y) => y[1] - x[1]);
+    html += `<div class="card"><h3>${S.mode === "back" ? "Where this cell's information started" : "Where this cell's information ended up (output row)"}</h3>` +
+      tops.slice(0, 6).map(([j, v]) => `<div class="brow"><span class="w">'${esc(T.tokens[j])}' <span style="color:var(--muted)">#${j}</span></span><span class="t"><span style="width:${100 * v}%;background:var(--flow)"></span></span><span class="v">${pct(v, 0)}</span></div>`).join("") +
+      `<p class="note">${S.mode === "back" ? "Share of the selected cell traced to each input token, following kept and attended paths block by block." : "Share of each output-row cell that traces back to the selected cell."} An approximation: it splits each step by vector sizes and attention contributions, and vectors can partly cancel. Multiplying shares over many layers also piles weight onto the first few tokens, which many heads use as a resting place, so trust the one-block "Into this cell" view more than the totals.</p></div>`;
+  }
+  html += `<div class="card"><div class="legend"><span><i style="background:var(--flow)"></i>attention from another token</span><span><i style="background:var(--muted)"></i>kept from itself</span><span><i style="background:var(--sel);height:8px;width:8px;border-radius:2px"></i>selected</span></div></div>`;
+  $("rail").innerHTML = html;
+  $("rail").querySelectorAll("[data-mode]").forEach(bt => bt.addEventListener("click", () => setMode(bt.dataset.mode)));
+  wireEditCard();
+}
+
+/* ---------- editing ---------- */
+function editCard(l, p) {
+  const F = S.form, tok = esc(S.orig.tokens[p]);
+  const kinds = [["word", "Push toward a word"], ["swap", "Swap one word for another"], ["patch", "Copy from another prompt"], ["diff", "Add a difference"]];
+  const hasJ = !!(S.T.readouts.jlens && S.T.readouts.jlens[l]);
+  const dirToggle = (field, val) => `<div class="field"><span>Direction</span><span class="btns" role="group" aria-label="Direction">${[["unembed", "Logit lens (unembedding)"], ["jlens", "J-lens"]].map(([v, lab]) =>
+    `<button type="button" data-dir="${field}" data-v="${v}" aria-pressed="${val === v}" ${v === "jlens" && !hasJ ? "disabled" : ""}>${lab}</button>`).join("")}</span></div>`;
+  let body = "";
+  if (F.kind === "word") body = `<div class="field"><label for="ew">Word (one token; a leading space matters, e.g. ' London')</label><input type="text" id="ew" data-f="word" value="${esc(F.word)}"></div>
+    <div class="field"><label for="ea">Amount: <b id="eav" style="font-family:var(--mono)">${F.amount}</b> × this cell's size (negative pushes away)</label><input type="range" id="ea" data-f="amount" min="-3" max="3" step="0.25" value="${F.amount}"></div>
+    ${dirToggle("dir", F.dir)}
+    <p class="note">To make <i>this token</i> output a word, the logit-lens direction works better: the residual connections carry it straight to the top. J-lens directions are for changing a concept that later tokens read; try "Swap one word for another".</p>`;
+  if (F.kind === "swap") body = `<div class="field"><label for="eo">Word to take out (blank = this cell's token, '${tok}')</label><input type="text" id="eo" data-f="old" value="${esc(F.old)}" placeholder="${tok}"></div>
+    <div class="field"><label for="en">Word to put in</label><input type="text" id="en" data-f="neww" value="${esc(F.neww)}"></div>
+    ${dirToggle("sdir", F.sdir)}
+    <p class="note">Removes the cell's component along the old word's direction and adds twice that amount along the new one's. Use it on the token that names something, then watch the answer. Example (Gemma-3-1B; GPT-2 small doesn't know leg counts): in "How many legs does a spider have?", swap spider → ant at the <i>spider</i> token, layer 8. The J-lens direction changes the answer from 8 to 6; the logit-lens direction doesn't.</p>`;
+  if (F.kind === "patch") body = `<div class="field"><label for="es">Donor prompt: its last token's cell at layer ${l} replaces this one</label><textarea id="es" data-f="source" rows="2">${esc(F.source)}</textarea></div>`;
+  if (F.kind === "diff") body = `<div class="field"><label for="eA">Prompt A</label><textarea id="eA" data-f="a" rows="2">${esc(F.a)}</textarea></div>
+    <div class="field"><label for="eB">Prompt B</label><textarea id="eB" data-f="b" rows="2">${esc(F.b)}</textarea></div>
+    <div class="field"><label for="ed">Amount: <b id="edv" style="font-family:var(--mono)">${F.damount}</b> × (A − B), last-token cells at layer ${l}</label><input type="range" id="ed" data-f="damount" min="-3" max="3" step="0.25" value="${F.damount}"></div>`;
+  return `<div class="card" style="border-color:var(--sel)"><h3 style="color:var(--sel)">Edit this cell and rerun</h3>
+    <p>Change layer ${l} of '${tok}', then let every layer above recompute. Cells below and to the left can't change.</p>
+    <div class="btns" role="group" aria-label="Kind of edit">${kinds.map(([k, lab]) => `<button type="button" data-kind="${k}" aria-pressed="${F.kind === k}">${lab}</button>`).join("")}</div>
+    ${body}<button type="button" class="go" id="ego" ${S.busy ? "disabled" : ""}>${S.busy ? "Running…" : "Edit and rerun"}</button><div class="note" id="emsg"></div></div>`;
+}
+function wireEditCard() {
+  if (!CFG.live) return;
+  $("rail").querySelectorAll("[data-kind]").forEach(b => b.addEventListener("click", () => { S.form.kind = b.dataset.kind; rail(); }));
+  $("rail").querySelectorAll("[data-dir]").forEach(b => b.addEventListener("click", () => { S.form[b.dataset.dir] = b.dataset.v; rail(); }));
+  $("rail").querySelectorAll("[data-f]").forEach(inp => inp.addEventListener("input", () => {
+    const f = inp.dataset.f; S.form[f] = inp.type === "range" ? +inp.value : inp.value;
+    if (f === "amount") $("eav").textContent = inp.value; if (f === "damount") $("edv").textContent = inp.value;
+  }));
+  const go = $("ego"); if (go) go.addEventListener("click", doEdit);
+}
+async function doEdit() {
+  const [l, p] = S.sel, F = S.form;
+  const edit = { layer: l, position: p, kind: F.kind, word: F.word, amount: F.kind === "diff" ? F.damount : F.amount, source: F.source, prompt_a: F.a, prompt_b: F.b,
+    direction: F.kind === "swap" ? F.sdir : F.dir, old_word: F.old, new_word: F.neww };
+  S.busy = true; rail();
+  try {
+    const r = await fetch("/api/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: S.prompt, edit }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || r.statusText);
+    S.edited = d.trace; S.change = d.change; S.edit = d.edit; S.busy = false; setView("change");
+    $("status").textContent = `Edited run · ${d.seconds}s`;
+  } catch (e) { S.busy = false; rail(); $("emsg").textContent = "Couldn't run the edit: " + e.message; $("emsg").style.color = "var(--sel)"; }
+}
+function setView(v) {
+  S.view = v; S.T = v === "original" || !S.edit ? S.orig : S.edited; prepare(S.T); outputLine(); editbar(); render();
+}
+function clearEdit() { S.edit = null; S.edited = null; S.change = null; setView("change"); }
+function editbar() {
+  const box = $("editbar");
+  if (!S.edit) { box.hidden = true; box.innerHTML = ""; return; }
+  const fmt = T => T.output[0].slice(0, 3).map((w, i) => `<span class="tok">${esc(w)}</span> ${pct(T.output[1][i], 0)}`).join(" ");
+  box.hidden = false;
+  box.innerHTML = `<div class="row"><span class="lbl">Edited run</span><span>${esc(S.edit.description)}</span></div>
+    <div class="row"><span><b>Next word before:</b> ${fmt(S.orig)}</span><span class="arrow">→</span><span><b>after:</b> ${fmt(S.edited)}</span></div>
+    <div class="row"><span class="seg" role="group" aria-label="Which run to show">${[["change", "What changed"], ["edited", "Edited run"], ["original", "Original run"]].map(([v, lab]) => `<button type="button" data-view="${v}" aria-pressed="${S.view === v}">${lab}</button>`).join("")}</span>
+    <button type="button" id="eclear" style="background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:5px;padding:3px 9px;font-size:0.8rem">Clear edit</button>
+    <span class="note">${S.view === "change" ? "Cells are shaded by how much they changed. Underlined words changed their lens readout." : S.view === "edited" ? "The edited run, read with the lens." : "The run before the edit."}</span></div>`;
+  box.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
+  $("eclear").addEventListener("click", clearEdit);
+}
+function outputLine() {
+  const [t, p] = S.T.output;
+  $("output").innerHTML = `<b>Model's next word${S.edit && S.view !== "original" ? " (edited)" : ""}:</b> ` + t.map((w, i) => `<span><span class="tok">${esc(w)}</span> ${pct(p[i], 0)}</span>`).join("");
+}
+
+/* ---------- PCA ---------- */
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function renderPCA() {
+  const T = S.T, box = $("pcabox");
+  if (!T || !T.pca) { box.hidden = true; return; }
+  box.hidden = false;
+  const B = T.n_blocks, slider = $("pcaslider");
+  slider.max = B;
+  if (S.pca.follow || S.pca.layer == null) S.pca.layer = S.sel[0];
+  const L = Math.min(B, S.pca.layer); slider.value = L; $("pcalayer").textContent = L;
+  const P = (S.sink ? T.pca.skip_first : T.pca.all)[L], v = P.var;
+  const share = S.pca.dims === 3 ? v[0] + v[1] + v[2] : v[0] + v[1];
+  $("pcanote").textContent = `Each point is one token's vector at layer ${L}, scaled to length 1 and projected onto that layer's top ${S.pca.dims} principal components, which capture ${pct(share, 0)} of the variation between this prompt's tokens. ` +
+    `Points close together point in similar directions. The axes are refit at every layer, so compare tokens within a layer, not positions across layers. Click a point to select its cell.` + (S.sink ? " The first token is left out." : "");
+  if (!window.Plotly) { $("pcaplot").innerHTML = `<div class="empty">The plot library is still loading (or couldn't load).</div>`; return; }
+  const idx = P.xyz.map((c, i) => c ? i : -1).filter(i => i >= 0);
+  const pick = k => idx.map(i => P.xyz[i][k]);
+  const labels = idx.map(i => T.tokens[i].replace(/\n/g, "⏎").replace(/^ /, "␣"));
+  const sel = S.sel[1], ink = css("--ink"), muted = css("--muted"), rule = css("--rule"), selc = css("--sel");
+  const marker = { size: idx.map(i => i === sel ? 14 : 9), color: idx, colorscale: "Viridis", cmin: 0, cmax: Math.max(1, T.tokens.length - 1),
+    line: { width: idx.map(i => i === sel ? 3 : 0.5), color: idx.map(i => i === sel ? selc : rule) },
+    colorbar: { title: { text: "position", font: { color: muted, size: 11 } }, tickfont: { color: muted, size: 10 }, thickness: 10, len: 0.6 } };
+  const hover = idx.map(i => `${T.tokens[i]} (#${i})<br>reads: ${readout(L, i, S.lens)[0][0]}`);
+  const three = S.pca.dims === 3;
+  const traces = [
+    { type: three ? "scatter3d" : "scatter", mode: "lines", x: pick(0), y: pick(1), z: three ? pick(2) : undefined, hoverinfo: "skip",
+      line: { color: rule, width: 1.5 }, showlegend: false },
+    { type: three ? "scatter3d" : "scatter", mode: "markers+text", x: pick(0), y: pick(1), z: three ? pick(2) : undefined,
+      text: labels, textposition: "top center", textfont: { family: "JetBrains Mono, monospace", size: 11, color: ink },
+      marker, hovertext: hover, hoverinfo: "text", customdata: idx, showlegend: false },
+  ];
+  const ax = (k) => ({ title: { text: `PC${k + 1} (${pct(v[k], 0)})`, font: { color: muted, size: 11 } }, tickfont: { color: muted, size: 10 },
+    gridcolor: rule, zerolinecolor: rule, color: muted });
+  const layout = { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", margin: { l: 50, r: 10, t: 10, b: 40 },
+    font: { family: "Public Sans, system-ui, sans-serif", color: ink }, uirevision: `${T.prompt}|${S.pca.dims}`,
+    xaxis: ax(0), yaxis: ax(1), scene: { xaxis: ax(0), yaxis: ax(1), zaxis: ax(2), bgcolor: "rgba(0,0,0,0)" } };
+  Plotly.react("pcaplot", traces, layout, { displaylogo: false, responsive: true });
+  const el = $("pcaplot");
+  if (!el._rsvClick) { el.on("plotly_click", ev => { const pt = ev.points.find(q => q.customdata != null); if (pt) { S.sel = [S.pca.layer, pt.customdata]; render(); } }); el._rsvClick = true; }
+}
+document.querySelectorAll("#pcadims button").forEach(b => b.addEventListener("click", () => {
+  S.pca.dims = +b.dataset.v; document.querySelectorAll("#pcadims button").forEach(x => x.setAttribute("aria-pressed", x === b)); renderPCA();
+}));
+$("pcaslider").addEventListener("input", e => { S.pca.follow = false; $("pcafollow").checked = false; S.pca.layer = +e.target.value; renderPCA(); });
+$("pcafollow").addEventListener("change", e => { S.pca.follow = e.target.checked; renderPCA(); });
+window.addEventListener("load", () => renderPCA());
+
+/* ---------- controls ---------- */
+function setMode(m) { S.mode = m; document.querySelectorAll("#modeseg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === m)); render(); }
+function setLens(v) { S.lens = v; document.querySelectorAll("#lensseg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v)); render(); }
+document.querySelectorAll("#modeseg button").forEach(b => b.addEventListener("click", () => setMode(b.dataset.v)));
+document.querySelectorAll("#lensseg button").forEach(b => b.addEventListener("click", () => setLens(b.dataset.v)));
+$("sink").addEventListener("change", e => { S.sink = e.target.checked; if (S.T) { mixingView(); render(); } });
+$("thr").addEventListener("input", e => { S.thr = e.target.value / 100; $("thrv").textContent = e.target.value + "%"; render(); });
+$("gridbox").addEventListener("keydown", e => {
+  if (!S.T) return; const d = { ArrowUp: [1, 0], ArrowDown: [-1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key]; if (!d) return;
+  e.preventDefault(); const [l, p] = S.sel;
+  S.sel = [Math.max(0, Math.min(S.T.n_blocks, l + d[0])), Math.max(0, Math.min(S.T.tokens.length - 1, p + d[1]))]; render();
+});
+
+function show(T) {
+  S.orig = T; S.T = T; S.prompt = T.prompt; S.edit = null; S.edited = null; S.change = null; S.view = "change"; prepare(T);
+  S.sel = [T.n_blocks, T.tokens.length - 1];
+  document.querySelectorAll("#lensseg button").forEach(b => { b.disabled = b.dataset.v === "jlens" && !T.readouts.jlens; b.setAttribute("aria-pressed", b.dataset.v === S.lens); });
+  outputLine(); editbar();
+  $("gridbox").innerHTML = ""; render();
+}
+async function run() {
+  const prompt = $("prompt").value; if (!prompt.trim()) { $("status").textContent = "Type a prompt first."; return; }
+  $("run").disabled = true; $("status").className = "status"; $("status").textContent = "Running the model…";
+  try {
+    const r = await fetch("/api/trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
+    const T = await r.json(); if (!r.ok) throw new Error(T.error || r.statusText);
+    show(T); $("status").textContent = `${T.tokens.length} tokens · ${T.n_blocks} layers · ${T.seconds}s`;
+  } catch (e) { $("status").className = "status err"; $("status").textContent = "Couldn't run it: " + e.message; }
+  finally { $("run").disabled = false; }
+}
+
+/* ---------- boot ---------- */
+$("modelchip").textContent = CFG.model || "";
+if (CFG.title) { $("title").textContent = CFG.title; document.title = CFG.title; }
+if (CFG.live) {
+  $("run").addEventListener("click", run);
+  $("prompt").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); run(); } });
+  $("examples").innerHTML = `<span>Try:</span>` + (CFG.examples || []).map(x => `<button type="button" title="${esc(x)}">${esc(x)}</button>`).join("");
+  $("examples").querySelectorAll("button").forEach(b => b.addEventListener("click", () => { $("prompt").value = b.title; run(); }));
+  if (!CFG.lens) document.querySelector('#lensseg [data-v="jlens"]').disabled = true;
+  $("prompt").value = (CFG.examples || [])[0] || ""; if ($("prompt").value) run();
+} else {
+  $("run").hidden = true; $("prompt").readOnly = true;
+  const traces = CFG.traces || [];
+  $("examples").innerHTML = traces.length > 1 ? `<span>Prompt:</span>` + traces.map((t, i) => `<button type="button" data-i="${i}" title="${esc(t.prompt)}" aria-pressed="${i === 0}">${esc(t.prompt)}</button>`).join("") : "";
+  const pick = i => { $("prompt").value = traces[i].prompt; document.querySelectorAll("#examples button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.i === i)); show(traces[i]); };
+  $("examples").querySelectorAll("button").forEach(b => b.addEventListener("click", () => pick(+b.dataset.i)));
+  if (traces.length) pick(0);
+}
+</script>
+</body>
+</html>
