@@ -35,6 +35,8 @@ def _attention_output_module(block: nn.Module) -> nn.Module:
     attention module's own output (Llama's ``post_attention_layernorm`` is the
     norm *before* the MLP, despite the name).
     """
+    if isinstance(getattr(block, "write", None), nn.Module):  # BDH: see residual_stream_vis.bdh
+        return block.write
     if hasattr(block, "pre_feedforward_layernorm") and hasattr(block, "post_attention_layernorm"):
         return block.post_attention_layernorm
     for name in ("self_attn", "attn", "attention", "self_attention"):
@@ -289,6 +291,10 @@ def layer_pca(h: torch.Tensor, *, skip_first: bool = False) -> list[dict]:
     return out
 
 
+#: How the viewer names the two parts of a block's update (models can override with ``model.update_parts``).
+UPDATE_PARTS = dict(attn="+ attention", mlp="+ MLP",
+                    note="Vector sizes. Only attention moves information between tokens; the MLP works on this token alone.")
+
 #: Prompts longer than this leave per-head shares out of :func:`trace` (they grow
 #: with ``layers × heads × tokens²``); the viewer fetches them one cell at a time.
 HEADS_INLINE_MAX = 64
@@ -362,5 +368,6 @@ def trace_record(rec: dict, model: nn.Module, tokenizer, prompt: str, lens: Jaco
         stay=r3(stay), move=move_sparse, heads=heads,
         output=final,
         contributions=rec["value_norms"] is not None,
+        parts=getattr(model, "update_parts", UPDATE_PARTS),
         pca=dict(all=layer_pca(rec["h"]), skip_first=layer_pca(rec["h"], skip_first=True)),
     )

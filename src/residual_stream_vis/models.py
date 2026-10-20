@@ -17,11 +17,16 @@ def load_model(name: str, *, device: str | None = None, dtype="auto", **kwargs):
     """Load a Hugging Face causal LM and its tokenizer, ready for the viewer.
 
     Args:
-        name: A Hub id such as ``"gpt2"`` or ``"google/gemma-3-1b-pt"``, or a local path.
+        name: A Hub id such as ``"gpt2"`` or ``"google/gemma-3-1b-pt"``, a local path,
+            or a BDH checkpoint (``.pt``; see :mod:`residual_stream_vis.bdh`).
         device: ``"cuda"``, ``"mps"`` or ``"cpu"``. Picked automatically if omitted.
         dtype: Passed to ``from_pretrained``; ``"auto"`` uses the checkpoint's dtype.
         **kwargs: Forwarded to ``AutoModelForCausalLM.from_pretrained``.
     """
+    from . import bdh
+
+    if bdh.is_checkpoint(name):
+        return bdh.load(name, device=device)
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     model = AutoModelForCausalLM.from_pretrained(name, dtype=dtype, **kwargs)

@@ -9,6 +9,7 @@ or from the shell: ``residual-stream-vis gpt2``.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import webbrowser
@@ -101,7 +102,11 @@ def _token_text(t: str) -> str:
 def _resolve_lens(model, lens):
     if lens != "auto":
         return lens
+    from .bdh import lens_path_for  # imported here so `python -m residual_stream_vis.bdh` runs cleanly
+
     name = getattr(getattr(model, "config", None), "_name_or_path", None)
+    if name and os.path.isfile(lens_path_for(name)):  # a local checkpoint with its lens beside it (BDH)
+        return JacobianLens.load(lens_path_for(name))
     if name not in PRETRAINED_LENSES:
         print(f"No published J-lens for {name!r}; showing the logit lens only. "
               "Pass lens=rsv.fit_lens(...) to add one.")
@@ -133,7 +138,7 @@ def make_server(
     lens = _resolve_lens(model, lens)
     name = getattr(getattr(model, "config", None), "_name_or_path", None)
     chat = bool(getattr(tokenizer, "chat_template", None))
-    page = _page({"live": True, "model": name, "examples": _fit_examples(tokenizer, examples or DEFAULT_EXAMPLES),
+    page = _page({"live": True, "model": name, "examples": _fit_examples(tokenizer, examples or getattr(model, "default_examples", DEFAULT_EXAMPLES)),
                   "chat_examples": CHAT_EXAMPLES, "chat": chat, "lens": lens is not None})
     device = next(model.parameters()).device
     lock = threading.Lock()

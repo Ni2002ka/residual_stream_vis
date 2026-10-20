@@ -117,6 +117,36 @@ lens.save("my_lens.pt")
 residual-stream-vis my/model --lens my_lens.pt
 ```
 
+### Baby Dragon Hatchling (BDH)
+
+[BDH](https://arxiv.org/abs/2509.26507) (Pathway, 2025) swaps the Transformer
+block for a layer of sparse, positive neurons and linear attention, with one
+set of weights shared by every layer. No trained weights are published, so
+train a small one on tiny Shakespeare (about an hour on an M2 Pro; the
+J-lens is fitted at the end and saved beside the checkpoint):
+
+```bash
+python -m residual_stream_vis.bdh --iters 2000     # writes checkpoints/bdh-shakespeare.pt and .lens.pt
+residual-stream-vis checkpoints/bdh-shakespeare.pt
+```
+
+The page works as it does for GPT-2 and Gemma, with these differences in what
+the cells mean (details in `residual_stream_vis/bdh.py`):
+
+- Tokens are bytes, so a word is several cells and "Track a word" follows its
+  first letter.
+- **Attention** is BDH's unnormalized linear attention. A token never attends
+  to itself, so the first column never changes, and each query's shares are
+  its `|scores|` scaled to sum to 1.
+- **A block's update** is `ln(x + y)`. It splits exactly into the
+  **neuron write** `y` (neurons that fire both for this token and for what
+  attention read, so the only part that moves information between tokens)
+  and the **norm rescale** of `x` by the layer norm, shown where the MLP would be.
+
+The model is the reference `bdh.py` laid out so the viewer can hook into it
+(the tests check that its logits match exactly). Weights saved from
+Pathway's `train.py` load too, with `rsv.bdh.from_reference_state_dict`.
+
 A prompt is one forward pass plus a lens readout of every cell. On an Apple
 GPU (picked automatically) Gemma-3-1B takes about 3 seconds; on CPU the readout
 against its 262k-word vocabulary takes minutes, so use a GPU for Gemma.
@@ -167,5 +197,5 @@ so fitted and published lenses are interchangeable. The method is from
 .venv/bin/pytest
 ```
 
-The tests build tiny random GPT-2, Llama and Gemma-3 models, so they run
+The tests build tiny random GPT-2, Llama, Gemma-3 and BDH models, so they run
 offline in seconds.

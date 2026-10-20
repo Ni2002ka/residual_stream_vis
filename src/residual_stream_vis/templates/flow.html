@@ -426,8 +426,8 @@ function rail() {
     const sizeRow = (lab, v, c) => `<div class="brow"><span class="w" style="font-family:var(--body)">${lab}</span><span class="t"><span style="width:${100 * v / mx}%;background:${c}"></span></span><span class="v">${v.toFixed(1)}</span></div>`;
     html += `<div class="card"><h3>Attention brought in from</h3>${sh.map(([j, v]) => srcRow(T, p, j, v)).join("")}
       <details class="fold"><summary>More detail: block ${b}'s update, top heads</summary><div style="display:grid;gap:6px;margin-top:6px">
-      ${sizeRow("kept (residual)", r, "var(--muted)")}${sizeRow("+ attention", a, "var(--flow)")}${sizeRow("+ MLP", m, "var(--logit)")}
-      <p class="note">Vector sizes. Only attention moves information between tokens; the MLP works on this token alone.</p>`;
+      ${sizeRow("kept (residual)", r, "var(--muted)")}${sizeRow(T.parts.attn, a, "var(--flow)")}${sizeRow(T.parts.mlp, m, "var(--logit)")}
+      <p class="note">${T.parts.note}</p>`;
     const H = cellHeads(b, p);
     if (H) {
       const heads = [];
