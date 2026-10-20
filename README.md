@@ -122,19 +122,23 @@ residual-stream-vis my/model --lens my_lens.pt
 [BDH](https://arxiv.org/abs/2509.26507) (Pathway, 2025) swaps the Transformer
 block for a layer of sparse, positive neurons and linear attention, with one
 set of weights shared by every layer. No trained weights are published, so
-train a small one on tiny Shakespeare (about an hour on an M2 Pro; the
-J-lens is fitted at the end and saved beside the checkpoint):
+train one; the J-lens is fitted at the end and saved beside the checkpoint.
+For word-level cells, comparable with GPT-2, train on WikiText-103 with GPT-2's
+tokenizer (needs `pip install -e ".[train]"`; about 2.5 hours on an M2 Pro):
 
 ```bash
-python -m residual_stream_vis.bdh --iters 2000     # writes checkpoints/bdh-shakespeare.pt and .lens.pt
-residual-stream-vis checkpoints/bdh-shakespeare.pt
+python -m residual_stream_vis.bdh --data wikitext --tokenizer gpt2 --iters 5000
+residual-stream-vis checkpoints/bdh-wikitext-gpt2.pt
 ```
+
+The reference setup, bytes on tiny Shakespeare, is the default
+(`python -m residual_stream_vis.bdh --iters 2000`, about an hour). Its cells
+are single letters, so the lenses and word edits work on letters too.
+`--lens-only` refits a checkpoint's J-lens without training.
 
 The page works as it does for GPT-2 and Gemma, with these differences in what
 the cells mean (details in `residual_stream_vis/bdh.py`):
 
-- Tokens are bytes, so a word is several cells and "Track a word" follows its
-  first letter.
 - **Attention** is BDH's unnormalized linear attention. A token never attends
   to itself, so the first column never changes, and each query's shares are
   its `|scores|` scaled to sum to 1.
@@ -142,6 +146,12 @@ the cells mean (details in `residual_stream_vis/bdh.py`):
   **neuron write** `y` (neurons that fire both for this token and for what
   attention read, so the only part that moves information between tokens)
   and the **norm rescale** of `x` by the layer norm, shown where the MLP would be.
+- **Neurons.** A BDH-only card lists the neurons that wrote the selected
+  cell's update (its share of all firing there), the words each one's output
+  raises most, and the words whose embedding excites it most. It also says
+  what fraction of the layer's neurons fired: they're sparse. Click a neuron
+  to shade the grid by where it fires across the prompt, to check whether it
+  means one thing.
 
 The model is the reference `bdh.py` laid out so the viewer can hook into it
 (the tests check that its logits match exactly). Weights saved from

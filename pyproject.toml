@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+train = ["pyarrow"]  # WikiText-103 for `python -m residual_stream_vis.bdh --data wikitext`
 
 [project.scripts]
 residual-stream-vis = "residual_stream_vis.__main__:main"

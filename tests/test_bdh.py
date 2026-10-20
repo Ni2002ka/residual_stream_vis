@@ -144,6 +144,27 @@ def test_server_finds_the_lens_beside_the_checkpoint(tmp_path, model):
         d = post("/api/edit", {"prompt": PROMPT, "edit": {"layer": 2, "position": 5, "kind": "word", "word": "z", "amount": 2}})
         assert d["change"][2][5] > 0 and max(d["change"][2][:5]) == 0
         assert post("/api/track", {"prompt": PROMPT, "word": "cat"})["token"] == "c"
+        assert '"neurons": true' in page
+        nr = post("/api/neurons", {"prompt": PROMPT, "layer": 2, "position": 5, "edited": True})  # the edited run above
+        assert nr["top"] and nr["top"][0]["acts"][2][5] > 0
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_neuron_report(model):
+    rec = record(model, TOK, PROMPT)
+    r = model.neuron_report(TOK, PROMPT, 2, 5, k=4)
+    assert r["n_neurons"] == 2 * 32 and 0 < r["writing"] <= r["active"] <= 1
+    top = r["top"]
+    assert 0 < len(top) <= 4 and [n["value"] for n in top] == sorted((n["value"] for n in top), reverse=True)
+    assert all(len(n["writes"]) == 5 and len(n["excited_by"]) == 5 for n in top)
+    n = top[0]
+    assert n["acts"][0] is None and n["acts"][2][5] == pytest.approx(n["value"], abs=1e-3)
+    assert all(row[0] == 0 for row in n["acts"][1:])  # the first token has no attention, so no neuron writes
+    assert sum(x["share"] for x in top) <= 1 + 1e-3
+    edited = model.neuron_report(TOK, PROMPT, 2, 5, edits=[rsv.Edit(1, 3, add=torch.randn(16) * 5)])
+    assert edited["top"][0]["acts"] != n["acts"] or edited["top"][0]["id"] != n["id"]
+    with pytest.raises(ValueError):
+        model.neuron_report(TOK, PROMPT, 0, 5)
+    assert rec["h"].shape[0] == 4

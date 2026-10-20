@@ -138,8 +138,9 @@ def make_server(
     lens = _resolve_lens(model, lens)
     name = getattr(getattr(model, "config", None), "_name_or_path", None)
     chat = bool(getattr(tokenizer, "chat_template", None))
-    page = _page({"live": True, "model": name, "examples": _fit_examples(tokenizer, examples or getattr(model, "default_examples", DEFAULT_EXAMPLES)),
-                  "chat_examples": CHAT_EXAMPLES, "chat": chat, "lens": lens is not None})
+    page = _page({"live": True, "model": name, "examples": _fit_examples(tokenizer, examples or getattr(model, "default_examples", None) or DEFAULT_EXAMPLES),
+                  "chat_examples": CHAT_EXAMPLES, "chat": chat, "lens": lens is not None,
+                  "neurons": hasattr(model, "neuron_report")})
     device = next(model.parameters()).device
     lock = threading.Lock()
     plotly_js = _plotly_js()
@@ -234,6 +235,7 @@ def make_server(
         else:
             raise ValueError(f"Unknown edit kind {kind!r}")
         rec = record(model, tokenizer, prompt, edits=[edit])
+        rec["edits"] = [edit]
         edited_last.clear()
         edited_last[prompt] = rec
         data = trace_record(rec, model, tokenizer, prompt, lens)
@@ -259,7 +261,7 @@ def make_server(
                 self._send(404, b"not found", "text/plain")
 
         def do_POST(self):
-            if self.path not in ("/api/trace", "/api/edit", "/api/generate", "/api/track", "/api/heads"):
+            if self.path not in ("/api/trace", "/api/edit", "/api/generate", "/api/track", "/api/heads", "/api/neurons"):
                 return self._send(404, b"not found", "text/plain")
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
@@ -278,6 +280,11 @@ def make_server(
                         if not word.strip():
                             raise ValueError("Type a word to track.")
                         data = track(run_of(prompt, bool(body.get("edited"))), model, tokenizer, word, lens)
+                    elif self.path == "/api/neurons":
+                        if not hasattr(model, "neuron_report"):
+                            raise ValueError("This model has no neuron view (only BDH models do).")
+                        edits = run_of(prompt, bool(body.get("edited"))).get("edits", ())
+                        data = model.neuron_report(tokenizer, prompt, int(body["layer"]), int(body["position"]), edits=edits)
                     elif self.path == "/api/heads":
                         rec = run_of(prompt, bool(body.get("edited")))
                         data = {"heads": heads_at(rec, int(body["block"]), int(body["position"]))}

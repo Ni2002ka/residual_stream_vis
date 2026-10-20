@@ -125,6 +125,10 @@ details.pop[open] > summary { border-color: var(--ink); }
 .popbody th { font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .popbody code, .popbody pre { font-family: var(--mono); font-size: 0.85em; }
 .popbody pre { background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; margin: 0; overflow-x: auto; }
+.neuron { display: grid; gap: 2px; text-align: left; background: none; color: inherit; font: inherit; border: 1px solid transparent; border-radius: 6px; padding: 3px 4px; cursor: pointer; }
+.neuron:hover { border-color: var(--rule); }
+.neuron[aria-pressed="true"] { border-color: var(--track); }
+.neuron .note { font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 details.fold > summary { cursor: pointer; font-size: 0.78rem; color: var(--muted); }
 details.card > summary { cursor: pointer; font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; font-weight: 600; }
 details.card[open] > summary { margin-bottom: 4px; }
@@ -261,7 +265,7 @@ const short = (s, n = 8) => s.length > n ? s.slice(0, n - 1) + "…" : s;
 const mix = (c, a) => `color-mix(in srgb, ${c} ${Math.max(0, Math.min(100, Math.round(a)))}%, var(--cell0))`;
 const S = { T: null, lens: CFG.lens === false ? "logit" : "jlens", mode: "select", sel: null, thr: 0.04, share: null, frac: null, sink: false, stay: null, move: null,
   orig: null, edited: null, edit: null, change: null, view: "change", prompt: "", busy: false,
-  pca: { dims: 2, layer: null, follow: true }, runmode: "prompt", track: null, headsCache: {}, editOpen: false,
+  pca: { dims: 2, layer: null, follow: true }, runmode: "prompt", track: null, headsCache: {}, neuron: null, neuronCache: {}, editOpen: false,
   form: { kind: "word", source: "", word: " London", amount: 1, a: "", b: "", damount: 1, dir: "unembed", old: "", neww: "", sdir: "jlens" } };
 
 /* ---------- data prep ---------- */
@@ -371,6 +375,11 @@ function render() {
       const edited = S.edit && S.view !== "original", isEdit = edited && l === S.edit.layer && p === S.edit.position;
       const changed = edited && readoutOf(S.orig, l, p, S.lens)[0][0] !== t[0];
       if (W) { const v = W[l][p]; fill = v > 0 ? mix("var(--flow)", 10 + 90 * Math.sqrt(Math.min(1, v))) : "var(--cell0)"; if (v > 0.45) fg = "var(--panel)"; if (v < S.thr) op = 0.45; }
+      else if (S.neuron) {
+        const row = S.neuron.acts[l], v = row ? row[p] / S.neuron.max : null;
+        if (v != null && v > 0) { fill = mix("var(--track)", 10 + 90 * Math.sqrt(v)); if (v > 0.45) fg = "var(--panel)"; }
+        else { fill = "var(--cell0)"; op = 0.6; }
+      }
       else if (S.track) {
         const R = trackRanks(); const r = R && R[l] ? R[l][p] : null;
         if (r != null) { const a = Math.max(0, 1 - Math.log10(r) / 4); fill = a > 0 ? mix("var(--track)", 6 + 94 * a) : "var(--cell0)"; if (a > 0.62) fg = "var(--panel)"; if (r <= 99) label = "#" + r; if (r > 1000) op = 0.75; }
@@ -379,6 +388,7 @@ function render() {
       else if (edited && S.view === "change") { const v = S.change[l][p]; fill = v > 0.002 ? mix("var(--sel)", 10 + 90 * Math.sqrt(Math.min(1, v))) : "var(--cell0)"; if (v > 0.4) fg = "var(--panel)"; if (v <= 0.002) op = 0.6; }
       else { const a = 8 + 92 * Math.sqrt(pr[0]); fill = mix(lensCol, a); if (a > 62) fg = "var(--panel)"; }
       let tip = `${T.tokens[p]} · layer ${l}\n` + t.map((w, k) => `'${w}' ${pct(pr[k], 1)}`).join("\n");
+      if (S.neuron && S.neuron.acts[l]) tip += `\n\nneuron ${S.neuron.name} fires ${S.neuron.acts[l][p].toFixed(3)} here`;
       if (S.track) { const R = trackRanks(); if (R && R[l]) tip += `\n\n'${S.track.token}' ranks #${R[l][p]} here`; }
       if (edited) tip += `\n\nchanged by ${pct(S.change[l][p], 0)} of its size` + (changed ? `\nbefore the edit: '${readoutOf(S.orig, l, p, S.lens)[0][0]}'` : "");
       cells += `<g class="cell" data-l="${l}" data-p="${p}" opacity="${op}"><title>${esc(tip)}</title>
@@ -436,6 +446,7 @@ function rail() {
       html += heads.slice(0, 5).map(([hi, j, v]) => `<div class="brow"><span class="w">head ${hi} ← ${j === p ? "itself" : "'" + esc(T.tokens[j]) + "'"}</span><span class="t"><span style="width:${100 * v}%;background:var(--flow)"></span></span><span class="v">${pct(v, 0)}</span></div>`).join("");
     } else html += `<p class="note">${CFG.live ? "Loading heads…" : "Heads aren't included for long prompts."}</p>`;
     html += `</div></details></div>`;
+    if (CFG.neurons) html += neuronCard(l, p);
   }
   if (S.mode !== "select") {
     const W = weights(l, p, S.mode), tops = [];
@@ -448,6 +459,7 @@ function rail() {
   if (CFG.live) html += editCard(l, p);
   $("rail").innerHTML = html;
   $("rail").querySelectorAll("[data-mode]").forEach(bt => bt.addEventListener("click", () => setMode(bt.dataset.mode)));
+  $("rail").querySelectorAll("[data-neuron]").forEach(bt => bt.addEventListener("click", () => pickNeuron(l, p, +bt.dataset.neuron)));
   const fold = $("editfold"); if (fold) fold.addEventListener("toggle", () => { S.editOpen = fold.open; });
   wireEditCard();
 }
@@ -493,7 +505,10 @@ async function doEdit() {
   try {
     const r = await fetch("/api/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: S.prompt, edit }) });
     const d = await r.json(); if (!r.ok) throw new Error(d.error || r.statusText);
-    S.edited = d.trace; S.change = d.change; S.edit = d.edit; S.busy = false; setView("change");
+    S.edited = d.trace; S.change = d.change; S.edit = d.edit; S.busy = false;
+    for (const k in S.neuronCache) if (k.startsWith("true|")) delete S.neuronCache[k];
+    for (const k in S.headsCache) if (k.startsWith("true|")) delete S.headsCache[k];
+    setView("change");
     $("status").textContent = `Edited run · ${d.seconds}s`;
   } catch (e) { S.busy = false; rail(); $("emsg").textContent = "Couldn't run the edit: " + e.message; $("emsg").style.color = "var(--sel)"; }
 }
@@ -584,7 +599,7 @@ $("gridbox").addEventListener("keydown", e => {
 });
 
 function show(T) {
-  S.orig = T; S.T = T; S.prompt = T.prompt; S.edit = null; S.edited = null; S.change = null; S.view = "change"; S.headsCache = {}; prepare(T);
+  S.orig = T; S.T = T; S.prompt = T.prompt; S.edit = null; S.edited = null; S.change = null; S.view = "change"; S.headsCache = {}; S.neuronCache = {}; S.neuron = null; prepare(T);
   showResponse(T); if (S.track) { const w = S.track.word; S.track = null; if (CFG.live) doTrack(w); }
   S.sel = [T.n_blocks, T.tokens.length - 1];
   document.querySelectorAll("#lensseg button").forEach(b => { b.disabled = b.dataset.v === "jlens" && !T.readouts.jlens; b.setAttribute("aria-pressed", b.dataset.v === S.lens); });
@@ -618,12 +633,49 @@ function cellHeads(b, p) {
   return null;
 }
 
+/* ---------- BDH neurons (fetched per cell) ---------- */
+function cellNeurons(l, p) {
+  const edited = !!(S.edit && S.view !== "original"), key = `${edited}|${l}|${p}`;
+  if (S.neuronCache[key]) return S.neuronCache[key];
+  if (!S.neuronCache[key + "?"]) {
+    S.neuronCache[key + "?"] = true;
+    fetch("/api/neurons", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: S.prompt, layer: l, position: p, edited }) })
+      .then(r => r.json()).then(d => { S.neuronCache[key] = d; if (S.sel[0] === l && S.sel[1] === p) rail(); });
+  }
+  return null;
+}
+function neuronCard(l, p) {
+  const d = cellNeurons(l, p);
+  let h = `<div class="card"><h3>Neurons that wrote this update</h3>`;
+  if (!d) return h + `<p class="note">Loading neurons…</p></div>`;
+  if (d.error) return h + `<p class="note">${esc(d.error)}</p></div>`;
+  const words = ws => ws.slice(0, 3).map(w => `'${esc(w)}'`).join(" ");
+  const mx = Math.max(1e-9, ...d.top.map(n => n.share));
+  h += `<p class="note">${pct(d.active, 1)} of the ${d.n_neurons.toLocaleString()} neurons fire for this token's state; ${pct(d.writing, 2)} also fire for what attention read, and only those write the update.</p>`;
+  h += d.top.map(n => `<button type="button" class="neuron" data-neuron="${n.id}" aria-pressed="${!!(S.neuron && S.neuron.id === n.id)}">
+      <span class="brow"><span class="w">h${n.head}·${n.index}</span><span class="t"><span style="width:${100 * n.share / mx}%;background:var(--track)"></span></span><span class="v">${pct(n.share, 1)}</span></span>
+      <span class="note">writes ${words(n.writes)} · excited by ${words(n.excited_by)}</span></button>`).join("");
+  h += `<p class="note">Share: the neuron's part of all firing that writes this cell. "Writes": the words its output raises most. "Excited by": the words whose embedding makes it fire most. Click a neuron to shade the grid by where it fires.</p></div>`;
+  return h;
+}
+function pickNeuron(l, p, id) {
+  if (S.neuron && S.neuron.id === id) { S.neuron = null; }
+  else {
+    const d = cellNeurons(l, p), n = d && d.top.find(x => x.id === id); if (!n) return;
+    const max = Math.max(1e-9, ...n.acts.filter(Boolean).flat());
+    S.track = null; $("trackword").value = "";
+    S.neuron = { id, name: `h${n.head}·${n.index}`, acts: n.acts, max, writes: n.writes };
+  }
+  $("trackclear").hidden = !S.neuron; trackNote(); render();
+}
+
 /* ---------- tracking one word across the grid ---------- */
 function trackRanks() {
   const t = S.track; if (!t) return null;
   return (S.lens === "jlens" && t.jlens) ? t.jlens.map((row, l) => row || t.logit[l]) : t.logit;
 }
 function trackNote() {
+  if (S.neuron) { $("tracknote").textContent = `Shading where neuron ${S.neuron.name} fires: darker = stronger (its largest firing in this prompt is ${S.neuron.max.toFixed(3)}). It writes ${S.neuron.writes.slice(0, 3).map(w => "'" + w + "'").join(", ")}.`; return; }
   const t = S.track; if (!t) { $("tracknote").textContent = ""; return; }
   const digits = t.n_tokens > 1 && /^\s*\d/.test(t.word);
   $("tracknote").textContent = `Highlighting '${t.token}': darker = the ${S.lens === "jlens" ? "J-lens" : "logit lens"} ranks it higher (#1 = its top word).` +
@@ -637,11 +689,12 @@ async function doTrack(word) {
   try {
     const r = await fetch("/api/track", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: S.prompt, word, edited }) });
     const d = await r.json(); if (!r.ok) throw new Error(d.error || r.statusText);
+    S.neuron = null;
     S.track = { word, token: d.token, n_tokens: d.n_tokens, logit: d.logit, jlens: d.jlens || null, edited };
     $("trackclear").hidden = false; trackNote(); render();
   } catch (e) { $("tracknote").textContent = "Couldn't highlight it: " + e.message; }
 }
-function clearTrack() { S.track = null; $("trackclear").hidden = true; $("trackword").value = ""; trackNote(); render(); }
+function clearTrack() { S.track = null; S.neuron = null; $("trackclear").hidden = true; $("trackword").value = ""; trackNote(); render(); }
 $("trackword").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doTrack(); } });
 $("trackword").addEventListener("change", () => { if ($("trackword").value.trim()) doTrack(); });
 $("trackclear").addEventListener("click", clearTrack);
