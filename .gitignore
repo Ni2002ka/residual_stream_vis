@@ -9,3 +9,20 @@ build/
 .ipynb_checkpoints/
 .claude/
 checkpoints/
+
+# Experiment outputs that can be regenerated (summaries and plots are kept)
+experiments/*/results/*.jsonl
+experiments/*/data/
+
+# LaTeX build files
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.brf
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.log
+paper/*.out
+paper/*.synctex.gz
+paper/main.pdf
+paper/paper-source.zip

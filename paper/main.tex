@@ -1,0 +1,289 @@
+% PacificVis 2027 VisNotes draft. Build: latexmk -pdf main.tex
+\documentclass[review]{vgtc}       % double-blind review; use \documentclass{vgtc} for camera-ready
+\graphicspath{{figs/}}
+
+\usepackage{times}
+\renewcommand*\ttdefault{txtt}
+\usepackage{mathptmx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{amsmath}
+
+% Draft helpers: remove before submission.
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\placeholder}[2]{\fbox{\parbox[c][#1][c]{0.95\linewidth}{\centering\small\textit{#2}}}}
+
+\newcommand{\LL}{logit lens}
+\newcommand{\JL}{J-lens}
+
+\onlineid{0}
+\vgtccategory{Research}
+\vgtcinsertpkg
+
+\title{Read, Trace, Edit: Probing the Residual Stream with Two Lenses}
+
+\author{Anonymous Authors}
+\affiliation{\scriptsize Anonymous Institution}
+
+\teaser{
+  \centering
+  \placeholder{2.3in}{Screenshot of the viewer on ``Fact: the capital of the state containing Dallas is''
+    (Gemma-3-4B-it, \JL). Grid of layers $\times$ tokens, each cell labeled with its top word. Callouts:
+    (a)~the \texttt{Dallas} column reads \emph{Texas} from layer~7; (b)~the last column reads \emph{Texas}, then
+    \emph{Austin}; (c)~the edit panel swapping \emph{Texas}$\to$\emph{California} at \texttt{Dallas}, layer~21, giving
+    \emph{Sacramento}; (d)~``what changed'' shading.}
+  \caption{The viewer on a two-hop question. Each cell is one token's residual-stream vector after one layer,
+    labeled with the word a lens reads from it. Reading (a, b) suggests the model goes through \emph{Texas};
+    editing (c) tests whether it does.}
+  \label{fig:teaser}
+}
+
+\abstract{
+Lenses that decode a language model's hidden states into words are a popular way to look inside it, but a
+heatmap of decoded words shows what a vector \emph{reads as}, not whether the model uses it. We present an
+interactive viewer that puts reading, tracing and editing on one layers-by-tokens grid of the residual stream.
+Every cell can be decoded with two lenses, the \LL{} and the Jacobian lens (\JL), traced back to the tokens it
+drew from, and edited, with the rest of the model rerun on the spot. Three usage scenarios on Gemma-3-4B, each
+backed by a sweep over a few hundred prompts, show what this combination finds. First, the lens one reads with
+is not the right direction to write with for every edit: the \LL's word direction sets what a token outputs, while
+the \JL's direction changes what later tokens read. Second, in two-hop questions the intermediate entity is
+readable on the city token from layer~7 and swapping it there redirects the answer 92--98\% of the time, while
+the same entity read at the answer position is not used. Third, \todo{chain-of-thought result}.
+}
+
+\keywords{Interpretability, language models, residual stream, logit lens, activation patching, visual analytics.}
+
+\begin{document}
+
+\firstsection{Introduction}
+\maketitle
+
+The residual stream of a transformer language model is a sequence of vectors, one per token, that each block
+reads from and adds to. Projecting these vectors onto the model's vocabulary, the \emph{\LL}~\cite{nostalgebraist2020},
+gives a readable picture: a grid of layers by tokens, each cell labeled with the word the model would predict if it
+stopped there. Refinements learn or estimate a map from each layer to the top before decoding, such as the tuned
+lens~\cite{belrose2023tuned} and the Jacobian lens (\JL)~\cite{workspace2026}, and often read an idea several layers
+earlier.
+
+Such a grid invites two mistakes. A word that is readable in a cell may play no part in the model's computation,
+and a word that matters may not be readable. Causal methods (activation patching~\cite{meng2022rome,
+zhang2024patching}, steering~\cite{turner2023actadd}, attribution graphs~\cite{ameisen2025circuit,
+lindsey2025biology}) answer the second question but are usually run as scripts, away from the picture that raised it.
+
+We built a viewer that closes this loop. A user reads a cell with either lens, traces where its information came
+from, edits it and sees every layer above recompute, all in the same grid (\cref{fig:teaser}). Our contributions:
+\begin{itemize}
+  \item An open-source, local viewer for Hugging Face decoder models that combines two lenses, attention-flow
+        tracing, four kinds of cell edit and chain-of-thought tracking on one grid (\cref{sec:tool}).
+  \item A finding that shapes the edit design: the direction for a word depends on what the edit is for. To set
+        what a token \emph{outputs}, use the \LL's direction; to change what \emph{later tokens read}, use the
+        \JL's (\cref{sec:directions}).
+  \item Two further usage scenarios, two-hop recall (\cref{sec:twohop}) and answers that precede their chain of
+        thought (\cref{sec:cot}), each confirmed by sweeps with controls, that show reading and editing
+        disagreeing in ways a static heatmap would hide.
+\end{itemize}
+
+\section{Related Work}
+
+\textbf{Lenses.} The \LL~\cite{nostalgebraist2020} applies the model's final norm and unembedding to an intermediate
+vector. The tuned lens~\cite{belrose2023tuned} learns an affine map per layer; the \JL~\cite{workspace2026} instead
+uses the average Jacobian from a layer to the top, estimated once on web text. Patchscopes~\cite{ghandeharioun2024patchscopes}
+decode a vector by patching it into another prompt. Lens readouts have been used to argue that multilingual models
+pass through English~\cite{wendler2024llamas} and that models resolve multi-hop questions
+internally~\cite{yang2024multihop, biran2024hopping}.
+
+\textbf{Causal analysis.} Activation patching replaces a cell with its value from another prompt and measures the
+effect~\cite{meng2022rome, zhang2024patching, heimersheim2024patching}; steering adds a direction~\cite{turner2023actadd,
+todd2024function}. Geva et al.~\cite{geva2023dissecting} show that attention moves subject attributes to the last
+token at specific layers, which we observe directly as a ``handoff'' (\cref{sec:twohop}). Attribution
+graphs~\cite{ameisen2025circuit, lindsey2025biology} build feature-level causal graphs; we borrow their two-hop case
+study and test it with lens directions on an open model.
+
+\textbf{Visual tools.} Attention visualizers~\cite{vig2019bertviz}, LM-Debugger~\cite{geva2022lmdebugger}, the
+LLM Transparency Tool~\cite{tufanov2024lmtt} and Neuronpedia~\cite{neuronpedia} expose attention, neurons, features or
+information flow; surveys cover visual analytics for deep learning broadly~\cite{hohman2019survey}. Our viewer is
+narrower: it is built around the residual-stream grid and makes every cell both readable with two lenses and
+editable, so that a reading can be tested where it was made.
+
+\section{The Viewer}
+\label{sec:tool}
+
+\textbf{Grid.} A prompt runs once with hooks that record every block's input and output, the attention and MLP
+writes, and per-head attention weights. Columns are tokens and rows are layers, from the input embedding (row~0) to
+the output (top). Each cell shows the top word under the selected lens; at the top both lenses give the model's
+actual prediction. A user can switch lenses for the whole grid.
+
+\textbf{Cell details.} Clicking a cell lists both lenses' top words and splits the block's update into what was kept
+from below, what attention wrote and what the MLP wrote. It shows which earlier tokens and heads the attention write
+came from, weighted by how much each actually passes on~\cite{kobayashi2020norm}, and chains these shares into an
+approximate trace back to the input or forward to the output, a norm-weighted rollout~\cite{abnar2020flow}. A
+per-layer PCA of all tokens sits below the grid.
+
+\textbf{Edits.} A user can change the selected cell and rerun every layer above it, comparing before and after; a
+``what changed'' shading shows how far the edit spreads (only cells above and to the right can move). Four edits are
+available: \emph{push} toward a word ($h \leftarrow h + \alpha\lVert h\rVert\hat d_w$), \emph{swap} one word for
+another ($h \leftarrow h - (h\!\cdot\!\hat d_o)\hat d_o + s\,\lvert h\!\cdot\!\hat d_o\rvert\,\hat d_n$), \emph{copy
+from another prompt} (activation patching) and \emph{add a difference} of two prompts' cells (a steering vector). Word
+directions come in two kinds: the \LL{} direction is the word's unembedding row; the \JL{} direction is that row
+pulled back through the layer's Jacobian $J_\ell$. \Cref{sec:directions} shows why both are needed.
+\todo{make the viewer default to the logit-lens direction for push and the J-lens direction for swap; today it
+defaults to the J-lens for both.}
+
+\textbf{Chain of thought.} For chat models, the viewer generates a response with the chat template and covers the
+prompt and response in one grid. \emph{Track a word} shades every cell by a lens's rank for one word, so a user can
+see whether an answer is present before the model writes its reasoning.
+
+\textbf{Implementation.} The viewer is a Python package with a local web page; it finds the blocks of GPT-2, Llama,
+Mistral, Qwen, Gemma and most decoder-only models, loads published \JL{}es for GPT-2 and Gemma~3, and can fit one for
+other models. A prompt takes about three seconds on Gemma-3-1B on a laptop GPU. \todo{repository link after review.}
+
+All experiments below use Gemma-3-4B-it~\cite{gemma3} with its published \JL, and only items the model answers
+correctly whose words are single tokens. Intervals are bootstrap 95\% CIs; paired comparisons use exact McNemar tests.
+
+\section{Scenario A: Two Kinds of Edit Direction}
+\label{sec:directions}
+
+Exploring the viewer, we noticed that pushing the last token of a prompt toward a word with the \LL{} direction
+worked from early layers, while the \JL{} direction, which reads ideas earlier, did nothing; for swapping an entity
+mid-prompt the reverse held. We tested this on four function-vector tasks~\cite{todd2024function} (country--capital,
+antonym, English--French, product--company) as five-shot ``Q:~x / A:~y'' prompts, plus a leg-count prompt (``How
+many legs does a spider have?''), sweeping every layer.
+
+\textbf{Push} sets what a token outputs: at the last token, add the direction of another item's answer
+($\alpha=1$); success means it becomes the top prediction. \textbf{Swap} changes a concept that later tokens read: at
+the query's entity token, swap its direction for another entity's ($s=2$); success means the model gives the new
+entity's answer. A random direction, as large as the \JL{} edit, is the control. For swaps, the ceiling is copying the
+whole entity cell from a prompt that names the new entity.
+
+\begin{table}[tb]
+  \caption{Edit success on Gemma-3-4B-it at each direction's best layer (in parentheses) and the other direction at
+    that layer. Push: $n=25$--$100$ items; swap: $n=95$--$100$ pairs; ceiling: copying the entity cell, 20 pairs,
+    averaged over layers before the handoff. Random directions: at most 4\% everywhere.}
+  \label{tab:directions}
+  \scriptsize
+  \centering
+  \setlength{\tabcolsep}{3pt}
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{lcccccc}
+    \toprule
+    & \multicolumn{2}{c}{push (output)} & \multicolumn{3}{c}{swap (entity)} & \\
+    task & \LL{} & \JL{} there & \JL{} & \LL{} there & ceiling & handoff \\
+    \midrule
+    country--capital & 100\% (9) & 0\%  & 73\% (20) & 2\%  & 99\% & 22 \\
+    product--company & 100\% (7) & 0\%  & 45\% (21) & 16\% & 95\% & 22 \\
+    antonym          & 100\% (9) & 7\%  & 0\%       & --   & 80\% & 21 \\
+    English--French  & 100\% (9) & 1\%  & 1\% (20)  & 0\%  & 88\% & 21 \\
+    leg count        & 100\% (10)& 16\% & 17\% (21) & 1\%  & 91\% & 21 \\
+    \bottomrule
+  \end{tabular}}
+\end{table}
+
+\begin{figure}[tb]
+  \centering
+  \placeholder{1.6in}{Country--capital: (left) push success by layer, \LL{} vs \JL{} vs random, with 95\% CIs;
+    (right) swap success by layer, the same three plus the patching ceiling (solid black), patching only the later
+    tokens (dashed) and the handoff layer (dotted).}
+  \caption{Each direction wins its own edit. The \LL{} direction sets the output from layer~7; the \JL{} direction
+    swaps the entity in the middle layers, until later tokens have read it (layer~22).}
+  \label{fig:directions}
+\end{figure}
+
+\textbf{Each direction wins its own edit} (\cref{tab:directions}, \cref{fig:directions}). The \LL{} push reaches
+100\% by layers 7--10 on every task, where the \JL{} push succeeds on 0--16\% of items ($p<10^{-7}$ on every task).
+The \JL{} push catches up only near the top, where $J_\ell$ approaches the identity and the two directions converge.
+For swaps on country--capital, the \JL{} direction succeeds on 73\% of pairs at layer~20 (79\% of the patching
+ceiling), against 2\% for the \LL{} and 0\% for random ($p=1.5\times10^{-19}$).
+
+\textbf{Why swaps fall short of the ceiling.} The swap removes only 1--5\% of the cell's norm, and its change points
+only loosely along the change patching makes (cosine 0.16--0.27 for the \JL{}, about 0.05 for the \LL{}), which ranks
+the two directions in the same order as their success. Failed swaps leave the original answer in place rather than
+scrambling it. Antonym and translation, whose answers depend on the word itself rather than a fact about it, defeat
+both directions although patching works; one direction is not enough to carry a word's identity.
+
+\textbf{The handoff.} All swaps stop working after layer 21--22. Copying the cells \emph{after} the entity shows why:
+from that layer on, the later tokens already carry the answer and the entity cell no longer matters. The viewer's copy
+edit makes this one click per layer, and it marks where edits on an entity can work at all.
+
+\section{Scenario B: Two-Hop Recall}
+\label{sec:twohop}
+
+Lindsey et al.~\cite{lindsey2025biology} find that Claude~3.5 Haiku answers ``Fact: the capital of the state
+containing Dallas is'' through an internal \emph{Texas}, and that substituting \emph{California} yields
+\emph{Sacramento}. We asked whether the viewer can find and test the same route in an open 4B model, with 46 U.S.\
+city$\to$state$\to$capital and 51 world city$\to$country$\to$capital prompts. The model answers 25 and 30 of them
+correctly; most errors stop after one hop (Tampa$\to$\emph{Florida}, Zurich$\to$\emph{Switzerland}) or repeat the
+city.
+
+\begin{figure}[tb]
+  \centering
+  \placeholder{1.5in}{(a) Fraction of U.S.\ items whose state, capital and a control item's state are in the \JL's
+    top~5, by layer, at the \texttt{Dallas} token and the last token (\LL{} as a faint comparison). (b) New capital
+    top-1 by layer for swapping the state at the city token vs at the last token (\JL{} and \LL{} directions), with
+    patching ceilings for each cell.}
+  \caption{Two-hop recall in Gemma-3-4B-it. The state is readable at both tokens, but only the city token's copy is
+    used: swapping it redirects the answer, swapping the last token's copy does not.}
+  \label{fig:twohop}
+\end{figure}
+
+\textbf{Reading.} At the city token, the \JL{} reads the state among its top five words from a median of layer~7
+(U.S.) and 15 (world); the \LL{} reads it only from layers 22 and 24. At the last token, U.S.\ items show the state
+before the capital in 92\% of cases (median layers 23 and 27 under the \JL), a serial pattern consistent with two hops.
+A control state from another item is in the top five for at most 16\% of items at any layer. World items do not show
+the pattern: under the \JL{} the capital appears at the same layer as the country or earlier in 77\% of items, as a memorized
+city$\to$capital shortcut would.
+
+\textbf{Editing.} Swapping the state at the city token (\emph{Texas}$\to$\emph{California} at \texttt{Dallas}, $s=4$)
+with the \JL{} direction gives the new capital in 92\% of 40 pairs (U.S., layer~21, CI 82--100\%) and 98\% (world,
+layer~18, CI 92--100\%), as often as copying the whole cell from the Oakland prompt. The \LL{} direction reaches 38\% and
+25\%, and swapping the \emph{city} itself (\texttt{Dallas}$\to$\texttt{Oakland}) only 65\% and 85\%: the city token's
+state is the variable the model reads. Random edits never succeed.
+
+\textbf{Readable is not used.} Copying the last token's cell from the counterfactual prompt does nothing through
+layer~24 and works from layer~25; copying the city token's cell works through layer~24 and stops at 25. Within one
+block, the answer moves from the city token to the last token. After that, the last token still reads
+\emph{Texas}, but swapping it there succeeds on at most 8\% (U.S.) and 22\% (world) of pairs. A static heatmap would
+show \emph{Texas} at both tokens; only editing separates the copy the model uses from the one it does not.
+
+\section{Scenario C: Answers Before Their Reasoning}
+\label{sec:cot}
+
+\todo{Results from the chain-of-thought study (due Nov~9). Planned content: for 60--100 two-hop questions in five
+categories answered step by step, the fraction where the final answer is in a lens's top~5 at the end of the question,
+before any reasoning token, per category and lens, against a plausible wrong answer as a control; and when it first
+appears, relative to the reasoning. Motivating example from the viewer: for ``The Eiffel Tower is in a country. What is
+the capital of that country? Think step by step.'', both lenses rank \emph{Paris} first at the newline that closes the
+question (layer~26 of~34), before the model writes \emph{France}; for an ordering question (``who is the shortest?'')
+the answer appears only just before it is written.}
+
+\begin{figure}[tb]
+  \centering
+  \placeholder{1.3in}{Two ``Track a word'' heatmaps over a question and its generated reasoning: one where the answer
+    is readable before the reasoning (Eiffel Tower $\to$ \emph{Paris}) and one where it is not (ordering).}
+  \caption{\todo{caption after results}}
+  \label{fig:cot}
+\end{figure}
+
+\section{Discussion and Limitations}
+
+The scenarios share a lesson for interpretability tools: a reading is a hypothesis, and the tool should make
+testing it as cheap as making it. Two design choices follow from our results. Edits should offer, and default to, the
+direction suited to their purpose, since the lens that reads an idea earliest is not the one that writes an output
+best. And patching across positions should be one click, because the layer where information leaves a token bounds
+every edit on it.
+
+Our evidence comes from one model family (Gemma-3-4B, with a 1B pilot on two tasks showing the same pattern of edit directions
+\todo{and a 1B two-hop check}), single-token words, and modest samples (25--100 items per condition). The \JL{} is an
+average over contexts, so its directions are approximate for any one prompt; single-direction swaps recover at most
+about 80\% of patching and fail on lexical tasks. The flow trace is an attention rollout, not an attribution. We report
+usage scenarios, not a user study.
+
+\section{Conclusion}
+
+Putting reading and editing on the same grid turns lens heatmaps from pictures into experiments. With it we found that
+the right direction for an edit depends on what the edit is for, located where a two-hop model stores and hands off
+its intermediate entity, and \todo{CoT finding}. The viewer and all experiment scripts are open source.
+
+\bibliographystyle{abbrv-doi-hyperref}
+\bibliography{refs}
+
+\end{document}
