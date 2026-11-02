@@ -40,15 +40,17 @@
 
 \abstract{
 Lenses that decode a language model's hidden states into words are a popular way to look inside it, but a
-heatmap of decoded words shows what a vector \emph{reads as}, not whether the model uses it. We present an
-interactive viewer that puts reading, tracing and editing on one layers-by-tokens grid of the residual stream.
-Every cell can be decoded with two lenses, the \LL{} and the Jacobian lens (\JL), traced back to the tokens it
-drew from, and edited, with the rest of the model rerun on the spot. Three usage scenarios on Gemma-3-4B, each
-backed by a sweep over a few hundred prompts, show what this combination finds. First, the lens one reads with
-is not the right direction to write with for every edit: the \LL's word direction sets what a token outputs, while
-the \JL's direction changes what later tokens read. Second, in two-hop questions the intermediate entity is
-readable on the city token from layer~7 and swapping it there redirects the answer 92--98\% of the time, while
-the same entity read at the answer position is not used. Third, \todo{chain-of-thought result}.
+heatmap of decoded words shows what a vector \emph{reads as}, not whether, or how much, the model uses it. We present
+an interactive viewer that puts reading, tracing and editing on the same layers-by-tokens grid of the residual stream.
+Every cell can be decoded with two lenses, the \LL~\cite{nostalgebraist2020} and the Jacobian lens
+(\JL)~\cite{workspace2026}, traced back to the tokens it drew from, and edited, with the rest of the model rerun on
+the spot. Three usage scenarios on Gemma-3-4B, each backed by a sweep over a few hundred prompts, show what this
+combination finds. First, the two lenses give different directions to write with, and each suits a different edit:
+the \LL's word direction sets what a token outputs, while the \JL's direction changes what later tokens read.
+Second, in two-hop trivia questions (the capital of the state or country containing a given city), the state or
+country is readable at the city token from as early as layer~7, and swapping it there redirects the answer
+92--98\% of the time; the same entity, read at the answer position, is not used. Third, \todo{chain-of-thought
+result}.
 }
 
 \keywords{Interpretability, language models, residual stream, logit lens, activation patching, visual analytics.}
@@ -58,20 +60,28 @@ the same entity read at the answer position is not used. Third, \todo{chain-of-t
 \firstsection{Introduction}
 \maketitle
 
-The residual stream of a transformer language model is a sequence of vectors, one per token, that each block
-reads from and adds to. Projecting these vectors onto the model's vocabulary, the \emph{\LL}~\cite{nostalgebraist2020},
-gives a readable picture: a grid of layers by tokens, each cell labeled with the word the model would predict if it
-stopped there. Refinements learn or estimate a map from each layer to the top before decoding, such as the tuned
-lens~\cite{belrose2023tuned} and the Jacobian lens (\JL)~\cite{workspace2026}, and often read an idea several layers
-earlier.
+A transformer language model keeps one vector for each token of its input, the token's \emph{residual stream}.
+Every layer reads these vectors and adds its output to them; Gemma-3-4B~\cite{gemma3}, for example, has 34 layers
+and 2,560-dimensional vectors. Recording every token's vector after every layer gives a grid: one column per input
+token, one row per layer, from the input embeddings at the bottom to the last layer at the top. At the top, the model
+turns each vector into a probability distribution over its vocabulary, its prediction of the next token.
 
-Such a grid invites two mistakes. A word that is readable in a cell may play no part in the model's computation,
+A \emph{lens} applies that readout to any cell of the grid, giving the distribution over words the model would
+predict if it stopped at that layer. The \LL~\cite{nostalgebraist2020} uses the model's own final norm and output
+matrix unchanged. Refinements first map the vector from its layer toward the top, with a learned map (the tuned
+lens~\cite{belrose2023tuned}) or the average Jacobian of the layers above (the Jacobian lens, or
+\JL~\cite{workspace2026}), and often read an idea several layers earlier. A lens heatmap usually labels each cell with
+its most probable word.
+
+Such a heatmap invites two mistakes. A word that is readable in a cell may play no part in the model's computation,
 and a word that matters may not be readable. Causal methods (activation patching~\cite{meng2022rome,
 zhang2024patching}, steering~\cite{turner2023actadd}, attribution graphs~\cite{ameisen2025circuit,
-lindsey2025biology}) answer the second question but are usually run as scripts, away from the picture that raised it.
+lindsey2025biology}) test whether a cell matters, but are usually run as scripts, away from the picture that raised
+the question.
 
-We built a viewer that closes this loop. A user reads a cell with either lens, traces where its information came
-from, edits it and sees every layer above recompute, all in the same grid (\cref{fig:teaser}). Our contributions:
+We built a viewer that closes this loop on the grid itself (\cref{fig:teaser}). A user reads any cell's distribution
+with either lens (its top words, or one word's rank in every cell), traces where the cell's information came from,
+edits it and sees every layer above recompute. Our contributions:
 \begin{itemize}
   \item An open-source, local viewer for Hugging Face decoder models that combines two lenses, attention-flow
         tracing, four kinds of cell edit and chain-of-thought tracking on one grid (\cref{sec:tool}).
@@ -143,22 +153,29 @@ correctly whose words are single tokens. Intervals are bootstrap 95\% CIs; paire
 \section{Scenario A: Two Kinds of Edit Direction}
 \label{sec:directions}
 
-Exploring the viewer, we noticed that pushing the last token of a prompt toward a word with the \LL{} direction
-worked from early layers, while the \JL{} direction, which reads ideas earlier, did nothing; for swapping an entity
-mid-prompt the reverse held. We tested this on four function-vector tasks~\cite{todd2024function} (country--capital,
-antonym, English--French, product--company) as five-shot ``Q:~x / A:~y'' prompts, plus a leg-count prompt (``How
-many legs does a spider have?''), sweeping every layer.
+A user who finds a word in a cell and wants to change it faces a choice the viewer has to make for them: which
+direction stands for that word? Exploring the viewer, we found that the answer depends on the edit. Take a five-shot
+prompt whose last lines are ``Q:~France / A:'', which the model completes with \emph{Paris}. To make the last token
+output \emph{Tokyo} instead, the \LL's direction for \emph{Tokyo} works from early layers and the \JL's does not. To
+make the model answer as if the question were about Japan, by swapping \emph{France} for \emph{Japan} at the
+\texttt{France} token, the reverse holds.
 
-\textbf{Push} sets what a token outputs: at the last token, add the direction of another item's answer
-($\alpha=1$); success means it becomes the top prediction. \textbf{Swap} changes a concept that later tokens read: at
-the query's entity token, swap its direction for another entity's ($s=2$); success means the model gives the new
-entity's answer. A random direction, as large as the \JL{} edit, is the control. For swaps, the ceiling is copying the
-whole entity cell from a prompt that names the new entity.
+\textbf{Setup.} We tested this on four function-vector tasks~\cite{todd2024function} (country--capital,
+product--company, antonym, English--French) as five-shot ``Q:~x / A:~y'' prompts, and on a leg-count prompt (``How
+many legs does a spider have?''), editing one cell at every layer. A \emph{push} adds a word's direction to the last
+token's cell, scaled to the cell's own length ($\alpha=1$); it succeeds if the word, another item's answer, becomes the
+top prediction. A \emph{swap} removes the entity token's component along the old entity's direction and adds twice
+that amount along the new one's ($s=2$); it succeeds if the model gives the new entity's answer. Each edit uses either
+the \LL{} direction (the word's row of the output matrix) or the \JL{} direction (that row times $J_\ell$), and a
+random direction of the same size as the \JL{} edit serves as a control. The ceiling for a swap is copying the whole
+entity cell from a prompt that names the new entity.
 
 \begin{table}[tb]
-  \caption{Edit success on Gemma-3-4B-it at each direction's best layer (in parentheses) and the other direction at
-    that layer. Push: $n=25$--$100$ items; swap: $n=95$--$100$ pairs; ceiling: copying the entity cell, 20 pairs,
-    averaged over layers before the handoff. Random directions: at most 4\% everywhere.}
+  \caption{Edits on Gemma-3-4B-it. Push: the first layer where the target becomes the top prediction for at least
+    90\% of items ($n=25$--$100$). Swap: success at each direction's best layer ($n=95$--$100$ pairs); random:
+    best layer; ceiling: copying the entity cell, averaged over layers before the handoff (20 pairs). Random pushes
+    succeed on at most 4\% of items at any layer. Choosing the best layer on half the pairs and scoring the other half
+    changes rates by at most 5 points.}
   \label{tab:directions}
   \scriptsize
   \centering
@@ -166,43 +183,69 @@ whole entity cell from a prompt that names the new entity.
   \resizebox{\linewidth}{!}{%
   \begin{tabular}{lcccccc}
     \toprule
-    & \multicolumn{2}{c}{push (output)} & \multicolumn{3}{c}{swap (entity)} & \\
-    task & \LL{} & \JL{} there & \JL{} & \LL{} there & ceiling & handoff \\
+    & \multicolumn{2}{c}{push: 90\% from layer} & \multicolumn{4}{c}{swap: success (layer)} \\
+    \cmidrule(lr){2-3}\cmidrule(lr){4-7}
+    task & \LL{} & \JL{} & \LL{} & \JL{} & random & ceiling \\
     \midrule
-    country--capital & 100\% (9) & 0\%  & 73\% (20) & 2\%  & 99\% & 22 \\
-    product--company & 100\% (7) & 0\%  & 45\% (21) & 16\% & 95\% & 22 \\
-    antonym          & 100\% (9) & 7\%  & 0\%       & --   & 80\% & 21 \\
-    English--French  & 100\% (9) & 1\%  & 1\% (20)  & 0\%  & 88\% & 21 \\
-    leg count        & 100\% (10)& 16\% & 17\% (21) & 1\%  & 91\% & 21 \\
+    \multicolumn{7}{l}{\textit{fact lookup}} \\
+    country--capital & \textbf{7} & 28 & 6\% (1)  & \textbf{73\%} (20) & 0\% & 99\% \\
+    product--company & \textbf{6} & 30 & 22\% (2) & \textbf{45\%} (21) & 1\% & 95\% \\
+    \multicolumn{7}{l}{\textit{word}} \\
+    antonym          & \textbf{7} & 22 & 6\% (1)  & 0\%                & 0\% & 80\% \\
+    English--French  & \textbf{8} & 27 & 7\% (1)  & 1\% (20)           & 0\% & 88\% \\
+    \multicolumn{7}{l}{\textit{counting}} \\
+    leg count        & \textbf{9} & 16 & \textbf{54\%} (1) & 17\% (21) & 1\% & 91\% \\
     \bottomrule
   \end{tabular}}
 \end{table}
 
-\begin{figure}[tb]
+\begin{figure*}[tb]
   \centering
-  \placeholder{1.6in}{Country--capital: (left) push success by layer, \LL{} vs \JL{} vs random, with 95\% CIs;
-    (right) swap success by layer, the same three plus the patching ceiling (solid black), patching only the later
-    tokens (dashed) and the handoff layer (dotted).}
-  \caption{Each direction wins its own edit. The \LL{} direction sets the output from layer~7; the \JL{} direction
-    swaps the entity in the middle layers, until later tokens have read it (layer~22).}
+  \includegraphics[width=\linewidth]{directions}
+  \caption{Each direction suits one edit (country--capital, Gemma-3-4B-it). (a) Pushing the answer token toward
+    another country's capital: the \LL{} direction succeeds for 90\% of items from layer~7, the \JL{} direction only
+    from layer~28 ($n=79$). (b) Swapping the country for another at its own token: the \JL{} direction succeeds in the
+    middle layers ($n=100$ pairs), up to the handoff, where copying the cells after the country starts to beat copying
+    the country's own cell (black lines, 20 pairs). Bands are bootstrap 95\% CIs. (c) Cosine between the two
+    directions for the same word, over the 208 words pushed toward (band: interquartile range): nearly perpendicular
+    through layer~12, converging near the top.}
   \label{fig:directions}
-\end{figure}
+\end{figure*}
 
-\textbf{Each direction wins its own edit} (\cref{tab:directions}, \cref{fig:directions}). The \LL{} push reaches
-100\% by layers 7--10 on every task, where the \JL{} push succeeds on 0--16\% of items ($p<10^{-7}$ on every task).
-The \JL{} push catches up only near the top, where $J_\ell$ approaches the identity and the two directions converge.
-For swaps on country--capital, the \JL{} direction succeeds on 73\% of pairs at layer~20 (79\% of the patching
-ceiling), against 2\% for the \LL{} and 0\% for random ($p=1.5\times10^{-19}$).
+\textbf{Push: use the \LL{} direction.} On every task, the \LL{} push makes the target the top prediction for at least
+90\% of items from layer 6--9 on; the \JL{} push gets there only at layer 16--30 (\cref{tab:directions},
+\cref{fig:directions}a). At the \LL's best layer, the \JL{} push succeeds on 0--16\% of items
+($p<10^{-7}$ on every task, exact McNemar).
 
-\textbf{Why swaps fall short of the ceiling.} The swap removes only 1--5\% of the cell's norm, and its change points
-only loosely along the change patching makes (cosine 0.16--0.27 for the \JL{}, about 0.05 for the \LL{}), which ranks
-the two directions in the same order as their success. Failed swaps leave the original answer in place rather than
-scrambling it. Antonym and translation, whose answers depend on the word itself rather than a fact about it, defeat
-both directions although patching works; one direction is not enough to carry a word's identity.
+\textbf{Why the two differ.} For the same word, the two directions are nearly perpendicular in early and middle layers
+(mean cosine over the 208 words pushed toward: 0.07 at layer~8, 0.31 at layer~20) and converge only near the top
+(0.51 at layer~27, 0.79 at layer~33; \cref{fig:directions}c). The \LL{} direction is what the top layer reads as the word at
+this token, and the residual connections carry it there almost unchanged. The \JL{} direction is what the layers
+above typically \emph{turn into} the word, closer to a concept that other tokens build on. So the choice matters most
+in the middle layers, where edits are most informative, and the \JL{} push catching up late reflects the directions
+converging, not the \JL{} direction becoming right.
 
-\textbf{The handoff.} All swaps stop working after layer 21--22. Copying the cells \emph{after} the entity shows why:
-from that layer on, the later tokens already carry the answer and the entity cell no longer matters. The viewer's copy
-edit makes this one click per layer, and it marks where edits on an entity can work at all.
+\textbf{Swap: use the \JL{} direction, for facts.} On the two fact-lookup tasks the \JL{} swap succeeds on 73\% and
+45\% of pairs, against 6\% and 22\% for the \LL{} direction at its best layer, 2\% and 16\% at the \JL's best layer
+($p=1.5\times10^{-19}$ and $2.5\times10^{-5}$), and at most 1\% for random. That is 79\% and 62\% of the patching
+ceiling. The swap is a small edit, removing 1--5\% of the cell's length, and its change is only loosely aligned with
+the change patching makes (cosine 0.16--0.27 for the \JL{} direction, about 0.05 for the \LL{}); failed swaps leave
+the original answer in place rather than scrambling it.
+
+\textbf{Where neither works.} On antonym and translation, where the answer depends on the word itself rather than a
+fact about it, both directions fail (at most 7\%) while patching the cell succeeds 80--88\% of the time: one direction
+does not carry a word's identity. On leg count, only the \LL{} direction works, and only at layers 1--3 (54\%), where
+the cell is still close to the token's input embedding (Gemma ties its input and output embeddings), so the swap
+amounts to changing the input word; in the middle layers the \JL{} direction reaches 17\%.
+
+\textbf{The handoff.} Every swap stops working after layer 21--22. Copying the cells \emph{after} the entity shows
+why: from that layer on, the later tokens already carry the answer, and the entity cell no longer matters
+(\cref{fig:directions}b). The viewer's copy edit finds this layer with one click per layer, and it bounds where any
+edit on the entity can work.
+
+\textbf{Design rule.} Write with the \LL{} direction to change what a token says, and with the \JL{} direction to
+change a fact that other tokens read from it; for edits to a word's identity, copy a cell from another prompt instead.
+\todo{make these the viewer's defaults.}
 
 \section{Scenario B: Two-Hop Recall}
 \label{sec:twohop}
@@ -214,34 +257,36 @@ city$\to$state$\to$capital and 51 world city$\to$country$\to$capital prompts. Th
 correctly; most errors stop after one hop (Tampa$\to$\emph{Florida}, Zurich$\to$\emph{Switzerland}) or repeat the
 city.
 
-\begin{figure}[tb]
+\begin{figure*}[tb]
   \centering
-  \placeholder{1.5in}{(a) Fraction of U.S.\ items whose state, capital and a control item's state are in the \JL's
-    top~5, by layer, at the \texttt{Dallas} token and the last token (\LL{} as a faint comparison). (b) New capital
-    top-1 by layer for swapping the state at the city token vs at the last token (\JL{} and \LL{} directions), with
-    patching ceilings for each cell.}
-  \caption{Two-hop recall in Gemma-3-4B-it. The state is readable at both tokens, but only the city token's copy is
-    used: swapping it redirects the answer, swapping the last token's copy does not.}
+  \includegraphics[width=\linewidth]{twohop}
+  \caption{Two-hop recall in Gemma-3-4B-it (``Fact: the capital of the state containing Dallas is'', 25 U.S.\
+    items the model answers correctly). (a) At the city token, the J-lens reads the state among its top five words
+    from about layer~7, the logit lens from layer~22; another item's state never appears. (b) At the last token, the
+    state appears before the capital. (c) Swapping the state for another item's at the city token ($s=4$, 40 pairs)
+    gives the new state's capital, nearly as often as copying the whole cell from the other prompt, until the handoff.
+    (d) The same swap at the last token fails, although the state is readable there and copying the cell works after
+    the handoff. Bands are bootstrap 95\% CIs.}
   \label{fig:twohop}
-\end{figure}
+\end{figure*}
 
 \textbf{Reading.} At the city token, the \JL{} reads the state among its top five words from a median of layer~7
-(U.S.) and 15 (world); the \LL{} reads it only from layers 22 and 24. At the last token, U.S.\ items show the state
-before the capital in 92\% of cases (median layers 23 and 27 under the \JL), a serial pattern consistent with two hops.
+(U.S.) and 15 (world; \cref{fig:twohop}a); the \LL{} reads it only from layers 22 and 24. At the last token, U.S.\ items show the state
+before the capital in 92\% of cases (\cref{fig:twohop}b) (median layers 23 and 27 under the \JL), a serial pattern consistent with two hops.
 A control state from another item is in the top five for at most 16\% of items at any layer. World items do not show
 the pattern: under the \JL{} the capital appears at the same layer as the country or earlier in 77\% of items, as a memorized
 city$\to$capital shortcut would.
 
 \textbf{Editing.} Swapping the state at the city token (\emph{Texas}$\to$\emph{California} at \texttt{Dallas}, $s=4$)
 with the \JL{} direction gives the new capital in 92\% of 40 pairs (U.S., layer~21, CI 82--100\%) and 98\% (world,
-layer~18, CI 92--100\%), as often as copying the whole cell from the Oakland prompt. The \LL{} direction reaches 38\% and
+layer~18, CI 92--100\%), as often as copying the whole cell from the Oakland prompt (\cref{fig:twohop}c). The \LL{} direction reaches 38\% and
 25\%, and swapping the \emph{city} itself (\texttt{Dallas}$\to$\texttt{Oakland}) only 65\% and 85\%: the city token's
 state is the variable the model reads. Random edits never succeed.
 
 \textbf{Readable is not used.} Copying the last token's cell from the counterfactual prompt does nothing through
 layer~24 and works from layer~25; copying the city token's cell works through layer~24 and stops at 25. Within one
 block, the answer moves from the city token to the last token. After that, the last token still reads
-\emph{Texas}, but swapping it there succeeds on at most 8\% (U.S.) and 22\% (world) of pairs. A static heatmap would
+\emph{Texas}, but swapping it there succeeds on at most 8\% (U.S.) and 22\% (world) of pairs (\cref{fig:twohop}d). A static heatmap would
 show \emph{Texas} at both tokens; only editing separates the copy the model uses from the one it does not.
 
 \section{Scenario C: Answers Before Their Reasoning}
