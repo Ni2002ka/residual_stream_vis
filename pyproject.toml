@@ -11,7 +11,6 @@ requires-python = ">=3.10"
 dependencies = [
     "torch>=2.1",
     "transformers>=4.56",
-    "plotly>=5.18",  # its bundled plotly.js draws the PCA panel, so the page works offline
 ]
 
 [project.optional-dependencies]

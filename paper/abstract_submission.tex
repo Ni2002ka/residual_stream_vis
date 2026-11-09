@@ -1,0 +1,56 @@
+% Abstract for the PacificVis 2027 conference-track abstract deadline (Nov 2, 2026 AoE), System Paper category.
+% PCS takes the title and abstract as plain text; a plain-text copy is at the end of this file.
+% Build separately from main.tex: pdflatex -output-directory=build_abstract abstract_submission.tex
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{times}
+
+\title{Read, Trace, Edit: Probing the Residual Stream with Two Lenses}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Lenses that decode a language model's hidden states into words are a popular way to look inside it, but a heatmap
+of decoded words shows what a vector \emph{reads as}, not whether the model uses it. We present an interactive viewer
+that puts reading, tracing and editing on one layers-by-tokens grid of the residual stream. Every cell can be decoded
+with two lenses, the logit lens and the Jacobian lens (J-lens), traced back to the tokens it drew from, and edited,
+with the layers above rerun on the spot. Three usage scenarios on Gemma-3-4B, each backed by a sweep over hundreds of
+prompts, show what this combination finds. First, the two lenses suit different edits. Pushing a word's logit-lens
+direction into the last token makes the model say it from layer~6--9, while the J-lens direction needs layers 16--30.
+Swapping one entity for another along J-lens directions redirects fact lookups (73\% of country--capital pairs, against
+2\% for the logit lens) but fails on antonyms and translation (at most 7\%). The viewer shows why: a J-lens swap works
+only when the J-lens can read the word in its own cell, which it does for names from the first layers and for words
+with many senses only after the model has moved the word on. Second, in two-hop questions (the capital of the state
+containing a given city), the state is readable at the city token from layer~7, and swapping it there redirects the
+answer 92--98\% of the time; the same state, read at the answer position, is not used. Third, across 500
+chain-of-thought questions in five task types, the final answer is often readable before the model writes any
+reasoning (top five in 97\% of correct fact-retrieval answers), and the J-lens reads it at the same or an earlier layer
+than the logit lens in every task type, much earlier for serial deduction (median layer 17 against 32). For ordering
+puzzles, neither lens reads the answer before the reasoning (at most 11\%, no more than a control word), consistent
+with the model working it out as it writes.
+\end{abstract}
+
+\end{document}
+
+% ---- Plain text for the PCS form ----
+% Lenses that decode a language model's hidden states into words are a popular way to look inside it, but a heatmap
+% of decoded words shows what a vector reads as, not whether the model uses it. We present an interactive viewer that
+% puts reading, tracing and editing on one layers-by-tokens grid of the residual stream. Every cell can be decoded
+% with two lenses, the logit lens and the Jacobian lens (J-lens), traced back to the tokens it drew from, and edited,
+% with the layers above rerun on the spot. Three usage scenarios on Gemma-3-4B, each backed by a sweep over hundreds
+% of prompts, show what this combination finds. First, the two lenses suit different edits. Pushing a word's
+% logit-lens direction into the last token makes the model say it from layer 6-9, while the J-lens direction needs
+% layers 16-30. Swapping one entity for another along J-lens directions redirects fact lookups (73% of
+% country-capital pairs, against 2% for the logit lens) but fails on antonyms and translation (at most 7%). The viewer
+% shows why: a J-lens swap works only when the J-lens can read the word in its own cell, which it does for names from
+% the first layers and for words with many senses only after the model has moved the word on. Second, in two-hop
+% questions (the capital of the state containing a given city), the state is readable at the city token from layer 7,
+% and swapping it there redirects the answer 92-98% of the time; the same state, read at the answer position, is not
+% used. Third, across 500 chain-of-thought questions in five task types, the final answer is often readable before
+% the model writes any reasoning (top five in 97% of correct fact-retrieval answers), and the J-lens reads it at the
+% same or an earlier layer than the logit lens in every task type, much earlier for serial deduction (median layer 17
+% against 32). For ordering puzzles, neither lens reads the answer before the reasoning (at most 11%, no more than a
+% control word), consistent with the model working it out as it writes.

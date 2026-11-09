@@ -18,12 +18,11 @@ from __future__ import annotations
 from typing import Sequence
 
 import torch
-import torch.nn.functional as F
 from torch import nn
 
 from .blocks import _attention_projections, _first_tensor, decode_tokens, find_blocks, head_writes, token_str
 from .edit import Edit, editing
-from .lens import JacobianLens, _clean, lens_logits
+from .lens import JacobianLens, _clean, _output_head, lens_logits
 
 
 def _attention_output_module(block: nn.Module) -> nn.Module:
@@ -175,6 +174,77 @@ def flow_weights(stay: torch.Tensor, move: torch.Tensor, layer: int, position: i
     return w
 
 
+def topk_rows(scores: torch.Tensor, k: int, block: int = 512):
+    """Exact top-k along the last dim of a wide 2-D tensor; much faster than ``torch.topk`` on Apple GPUs.
+
+    The k largest values lie in the k blocks with the largest maxima, so take the
+    top k of the block maxima, then the top k within those blocks (and the tail
+    that doesn't fill a block). Ties may be broken differently from ``torch.topk``.
+    """
+    n, V = scores.shape
+    nb = V // block
+    if nb <= k:
+        return scores.topk(k, -1)
+    blocks = scores.as_strided((n, nb, block), (scores.stride(0), block, 1))
+    bi = blocks.amax(-1).topk(k, -1).indices                                  # (n, k)
+    cand = blocks.gather(1, bi[..., None].expand(-1, -1, block)).reshape(n, k * block)
+    cidx = (bi[..., None] * block + torch.arange(block, device=scores.device)).reshape(n, k * block)
+    if V > nb * block:
+        cand = torch.cat([cand, scores[:, nb * block:]], 1)
+        cidx = torch.cat([cidx, torch.arange(nb * block, V, device=scores.device).expand(n, -1)], 1)
+    v, j = cand.topk(k, -1)
+    return torch.return_types.topk((v, cidx.gather(1, j)))
+
+
+@torch.no_grad()
+def read_cells(model: nn.Module, lens: JacobianLens | None, h: torch.Tensor, layers: Sequence[int], *,
+               k: int = 5, track_ids: Sequence[int] = (), chunk: int = 1024):
+    """Read every cell of ``layers`` with one lens in a few large GPU batches.
+
+    Returns ``(probs, ids, ranks)``: the top-``k`` probabilities and token ids,
+    ``(len(layers), n, k)`` (``None`` when ``k == 0``), and the rank of each
+    token in ``track_ids`` (1 = top), ``(len(layers), n, len(track_ids))``
+    (``None`` without ``track_ids``). Same numbers as :func:`lens_logits`
+    followed by softmax and top-k, computed in one pass over the vocabulary.
+    """
+    norm, w_u, softcap = _output_head(model)
+    n = h.shape[1]
+    xs = []
+    for l in layers:
+        J = lens.matrix(l) if lens is not None else None
+        xs.append(h[l].float() if J is None else h[l].float() @ J.T)
+    x = norm(torch.cat(xs).to(w_u.device, w_u.dtype))
+    ids = torch.tensor(list(track_ids), device=w_u.device, dtype=torch.long)
+    probs, top_ids, ranks = [], [], []
+    for s in range(0, x.shape[0], chunk):
+        lg = x[s:s + chunk] @ w_u.T
+        if softcap:
+            lg = softcap * torch.tanh(lg / softcap)
+        if k:
+            top = topk_rows(lg, k)
+            lse = torch.logsumexp(lg.float(), dim=-1, keepdim=True)
+            probs.append((top.values.float() - lse).exp())
+            top_ids.append(top.indices)
+        if len(ids):
+            ref = lg[:, ids]
+            ranks.append(torch.stack([(lg > ref[:, j:j + 1]).sum(-1) + 1 for j in range(len(ids))], -1))
+    shape = (len(layers), n)
+    probs = torch.cat(probs).cpu().view(*shape, k) if k else None
+    top_ids = torch.cat(top_ids).cpu().view(*shape, k) if k else None
+    ranks = torch.cat(ranks).cpu().view(*shape, len(ids)) if len(ids) else None
+    return probs, top_ids, ranks
+
+
+def _word_info(tokenizer, word: str) -> tuple[int, str, int]:
+    """``(token id, token text, how many tokens the word is)`` for highlighting ``word``."""
+    from .edit import word_token
+
+    i, text = word_token(tokenizer, word)
+    pieces = [t for t in tokenizer(word.strip(), add_special_tokens=False)["input_ids"] if token_str(tokenizer, t).strip()]
+    n_tokens = 1 if len(tokenizer(word, add_special_tokens=False)["input_ids"]) == 1 else max(1, len(pieces))
+    return i, text, n_tokens
+
+
 _LABELS: dict[tuple[int, int], str] = {}
 
 
@@ -226,69 +296,11 @@ def trace(
         (``heads[block][head][query][key]``; for each query, the values over all
         heads and keys sum to 1, and summing over heads gives the combined share
         of the attention write from each key; ``None`` past ``HEADS_INLINE_MAX``
-        tokens, see :func:`heads_at`)
-        the model's ``output`` at the last position, and a per-layer ``pca`` of
-        the token vectors (``all`` tokens, and ``skip_first`` without the first;
-        see :func:`layer_pca`).
+        tokens, see :func:`heads_at`),
+        and the model's ``output`` at the last position.
     """
     rec = record(model, tokenizer, prompt, edits=edits, layers_path=layers_path)
     return trace_record(rec, model, tokenizer, prompt, lens, top_k=top_k)
-
-
-def pca(x: torch.Tensor, n_components: int = 3) -> tuple[torch.Tensor, torch.Tensor]:
-    """PCA via SVD in torch.
-
-    Args:
-        x: ``(n_samples, n_features)`` data.
-        n_components: Number of principal components to keep.
-
-    Returns:
-        ``(projected, explained_variance_ratio)`` where ``projected`` is
-        ``(n_samples, n_components)``. Component signs are fixed so the
-        largest-magnitude loading of each component is positive, which keeps
-        the output deterministic.
-    """
-    x = x.double()
-    centered = x - x.mean(dim=0, keepdim=True)
-    # Economy SVD: with n_tokens << d_model this is cheap.
-    u, s, vh = torch.linalg.svd(centered, full_matrices=False)
-    k = min(n_components, s.numel())
-    vh = vh[:k]
-    signs = torch.sign(vh.gather(1, vh.abs().argmax(dim=1, keepdim=True))).squeeze(1)
-    signs[signs == 0] = 1
-    projected = (u[:, :k] * s[:k]) * signs
-    var = s**2
-    ratio = var[:k] / var.sum().clamp_min(1e-30)
-    if k < n_components:  # fewer samples than components: pad with zeros
-        projected = F.pad(projected, (0, n_components - k))
-        ratio = F.pad(ratio, (0, n_components - k))
-    return projected.float(), ratio.float()
-
-
-def layer_pca(h: torch.Tensor, *, skip_first: bool = False) -> list[dict]:
-    """Per-layer PCA of one prompt's token vectors, for the viewer's PCA panel.
-
-    Each layer gets its own PCA on the L2-normalized vectors (so it shows
-    direction, not size). Axes are
-    refit at every layer, so compare tokens within a layer, not across layers.
-
-    Args:
-        h: ``(n_layers, n_tokens, d_model)`` residual stream.
-        skip_first: Leave out the first token (often an outlier "attention sink")
-            when fitting; its coordinates are then ``None``.
-
-    Returns:
-        One dict per layer: ``xyz`` (``[pc1, pc2, pc3]`` per token, or ``None``)
-        and ``var`` (explained variance ratio of each component).
-    """
-    out = []
-    start = 1 if skip_first and h.shape[1] > 2 else 0
-    for layer in range(h.shape[0]):
-        x = torch.nn.functional.normalize(h[layer, start:], dim=-1)
-        pcs, ratio = pca(x, 3)
-        xyz = [None] * start + [[round(float(v), 4) for v in row] for row in pcs]
-        out.append(dict(xyz=xyz, var=[round(float(v), 4) for v in ratio]))
-    return out
 
 
 #: How the viewer names the two parts of a block's update (models can override with ``model.update_parts``).
@@ -317,35 +329,53 @@ def track(rec: dict, model: nn.Module, tokenizer, word: str, lens: JacobianLens 
     J-lens layers it doesn't cover are ``None``. A word that is several tokens is
     tracked by its first token (``n_tokens`` says how many it has).
     """
-    from .edit import word_token
-
-    i, text = word_token(tokenizer, word)
-    pieces = [t for t in tokenizer(word.strip(), add_special_tokens=False)["input_ids"] if token_str(tokenizer, t).strip()]
-    n_tokens = 1 if len(tokenizer(word, add_special_tokens=False)["input_ids"]) == 1 else max(1, len(pieces))
+    i, text, n_tokens = _word_info(tokenizer, word)
     n_layers = rec["h"].shape[0]
 
-    def ranks(L, layer):
-        logits = lens_logits(model, L, rec["h"][layer], layer, on_device=True)
-        return ((logits > logits[:, i : i + 1]).sum(-1) + 1).cpu().tolist()
+    def ranks(L, layers):
+        return read_cells(model, L, rec["h"], layers, k=0, track_ids=[i])[2][..., 0].tolist()
 
-    out = {"token": text, "n_tokens": n_tokens, "logit": [ranks(None, l) for l in range(n_layers)]}
+    out = {"token": text, "n_tokens": n_tokens, "logit": ranks(None, list(range(n_layers)))}
     if lens is not None:
-        out["jlens"] = [ranks(lens, l) if l in lens.layers else None for l in range(n_layers)]
+        by_layer = dict(zip(lens.layers, ranks(lens, lens.layers)))
+        out["jlens"] = [by_layer.get(l) for l in range(n_layers)]
     return out
 
 
 @torch.no_grad()
-def trace_record(rec: dict, model: nn.Module, tokenizer, prompt: str, lens: JacobianLens | None = None, *, top_k: int = 5) -> dict:
-    """:func:`trace` from an existing :func:`record` result."""
+def trace_record(rec: dict, model: nn.Module, tokenizer, prompt: str, lens: JacobianLens | None = None, *, top_k: int = 5,
+                 track_word: str | None = None) -> dict:
+    """:func:`trace` from an existing :func:`record` result.
+
+    With ``track_word``, the result also has ``track`` (as from :func:`track`),
+    computed in the same pass as the readouts.
+    """
     n_blocks, n_heads = rec["attention"].shape[:2]
     r3 = lambda t: [[round(float(v), 4) for v in row] for row in t]
 
-    readouts = {"logit": [_top(lens_logits(model, None, rec["h"][l], l, on_device=True), tokenizer, top_k) for l in range(n_blocks + 1)]}
+    tracked, tids = None, []
+    if track_word and track_word.strip():
+        tid, ttext, n_pieces = _word_info(tokenizer, track_word)
+        tracked, tids = {"token": ttext, "n_tokens": n_pieces}, [tid]
+
+    def cells(L, layers):
+        probs, ids, ranks = read_cells(model, L, rec["h"], layers, k=top_k, track_ids=tids)
+        rows = [[[[_label(tokenizer, int(i)) for i in ids[a, p]], [round(float(v), 4) for v in probs[a, p]]]
+                 for p in range(ids.shape[1])] for a in range(len(layers))]
+        return rows, (ranks[..., 0].tolist() if ranks is not None else None)
+
+    all_layers = list(range(n_blocks + 1))
+    readouts = {}
+    readouts["logit"], logit_ranks = cells(None, all_layers)
+    if tracked:
+        tracked["logit"] = logit_ranks
     if lens is not None:
-        readouts["jlens"] = [
-            None if l not in lens.layers else _top(lens_logits(model, lens, rec["h"][l], l, on_device=True), tokenizer, top_k)
-            for l in range(n_blocks + 1)
-        ]
+        j_rows, j_ranks = cells(lens, lens.layers)
+        by_layer = dict(zip(lens.layers, j_rows))
+        readouts["jlens"] = [by_layer.get(l) for l in all_layers]
+        if tracked:
+            rk = dict(zip(lens.layers, j_ranks))
+            tracked["jlens"] = [rk.get(l) for l in all_layers]
     stay, move = mixing(rec)
     n = rec["h"].shape[1]
     heads = None
@@ -369,5 +399,5 @@ def trace_record(rec: dict, model: nn.Module, tokenizer, prompt: str, lens: Jaco
         output=final,
         contributions=rec["value_norms"] is not None,
         parts=getattr(model, "update_parts", UPDATE_PARTS),
-        pca=dict(all=layer_pca(rec["h"]), skip_first=layer_pca(rec["h"], skip_first=True)),
+        track=tracked,
     )

@@ -1,0 +1,88 @@
+Loading weights:   0%|          | 0/883 [00:00<?, ?it/s]Loading weights:  47%|████▋     | 415/883 [00:00<00:00, 4144.08it/s]Loading weights: 100%|██████████| 883/883 [00:00<00:00, 5840.84it/s]
+  [antonym] pair 1  comfortable→unfold  51s
+  [antonym] pair 2  dispute→loaded  73s
+  [antonym] pair 3  subtract→ancient  95s
+  [antonym] pair 4  double→unemployment  117s
+  [antonym] pair 5  drunk→order  140s
+  [antonym] pair 6  generic→unmanned  164s
+  [antonym] pair 7  soften→timid  185s
+  [antonym] pair 8  intended→low  205s
+  [antonym] pair 9  potential→shout  226s
+  [antonym] pair 10  predecessor→sister  247s
+  [antonym] pair 11  generic→success  269s
+  [antonym] pair 12  intended→potential  290s
+  [antonym] pair 13  ancient→endless  312s
+  [antonym] pair 14  except→principal  334s
+  [antonym] pair 15  brutal→subtract  356s
+  [antonym] pair 16  compressed→frown  376s
+  [antonym] pair 17  potential→timid  397s
+  [antonym] pair 18  successful→confirm  419s
+  [antonym] pair 19  sorrow→unmanned  439s
+  [antonym] pair 20  northern→fall  460s
+  [english-french] pair 1  rice→land  504s
+  [english-french] pair 2  automatic→quest  526s
+  [english-french] pair 3  experiences→yes  548s
+  [english-french] pair 4  follow→automatic  571s
+  [english-french] pair 5  audience→obvious  592s
+  [english-french] pair 6  land→ten  613s
+  [english-french] pair 7  called→broad  635s
+  [english-french] pair 8  constructed→experiences  659s
+  [english-french] pair 9  century→arms  682s
+  [english-french] pair 10  awareness→obvious  703s
+  [english-french] pair 11  century→automatic  726s
+  [english-french] pair 12  yes→announcement  748s
+  [english-french] pair 13  liked→broad  770s
+  [english-french] pair 14  called→constructed  791s
+  [english-french] pair 15  appearance→constructed  820s
+  [english-french] pair 16  statistics→liked  844s
+  [english-french] pair 17  depot→spots  874s
+  [english-french] pair 18  automatic→knowledge  897s
+  [english-french] pair 19  allow→called  918s
+  [english-french] pair 20  cable→committee  941s
+  [country-capital] pair 1  Russia→Taiwan  1004s
+  [country-capital] pair 2  Greece→Ecuador  1044s
+  [country-capital] pair 3  Oman→Israel  1071s
+  [country-capital] pair 4  Jordan→Slovakia  1097s
+  [country-capital] pair 5  Netherlands→Sudan  1122s
+  [country-capital] pair 6  Seychelles→Bangladesh  1148s
+  [country-capital] pair 7  Jordan→Georgia  1176s
+  [country-capital] pair 8  Morocco→Armenia  1199s
+  [country-capital] pair 9  Serbia→Hungary  1221s
+  [country-capital] pair 10  Belarus→Tunisia  1248s
+  [country-capital] pair 11  Qatar→Russia  1271s
+  [country-capital] pair 12  Lithuania→Jamaica  1298s
+  [country-capital] pair 13  Greece→Colombia  1322s
+  [country-capital] pair 14  Netherlands→Ecuador  1346s
+  [country-capital] pair 15  Uganda→Germany  1369s
+  [country-capital] pair 16  Singapore→Serbia  1392s
+  [country-capital] pair 17  Azerbaijan→Romania  1416s
+  [country-capital] pair 18  Poland→Seychelles  1440s
+  [country-capital] pair 19  Belgium→Lithuania  1464s
+  [country-capital] pair 20  Kazakhstan→Syria  1487s
+  [legs] pair 1  butterfly→mouse  1524s
+  [legs] pair 2  elephant→owl  1552s
+  [legs] pair 3  eagle→snake  1580s
+  [legs] pair 4  spider→mouse  1607s
+  [legs] pair 5  worm→elephant  1634s
+  [legs] pair 6  cat→owl  1661s
+  [legs] pair 7  rabbit→scorpion  1688s
+  [legs] pair 8  eagle→cat  1715s
+  [legs] pair 9  eagle→worm  1744s
+  [legs] pair 10  fly→spider  1773s
+  [legs] pair 11  bee→mouse  1800s
+  [legs] pair 12  butterfly→cat  1827s
+  [legs] pair 13  duck→lizard  1858s
+  [legs] pair 14  scorpion→parrot  1887s
+  [legs] pair 15  spider→pig  1917s
+  [legs] pair 16  eagle→spider  1946s
+  [legs] pair 17  ostrich→cow  1975s
+  [legs] pair 18  wasp→ostrich  2002s
+  [legs] pair 19  scorpion→horse  2029s
+  [legs] pair 20  worm→lizard  2056s
+
+Success at the best layer (layer), and mean cosine to the patch change / size relative to the cell at layer 12
+  antonym          jlens 0% (L1) cos 0.08 size 0.02   mean_generic 95% (L4) cos 0.50 size 0.16   one_sentence 90% (L2) cos 0.40 size 0.14   bare 90% (L1) cos 0.52 size 0.05
+  english-french   jlens 0% (L1) cos 0.08 size 0.01   mean_generic 95% (L8) cos 0.39 size 0.12   one_sentence 95% (L7) cos 0.34 size 0.14   bare 90% (L1) cos 0.62 size 0.05
+  country-capital  jlens 75% (L20) cos 0.26 size 0.04   mean_generic 100% (L1) cos 0.73 size 0.11   one_sentence 100% (L1) cos 0.61 size 0.14   bare 100% (L1) cos 0.65 size 0.05
+  legs             jlens 20% (L12) cos 0.23 size 0.03   mean_generic 100% (L1) cos 0.42 size 0.11   one_sentence 100% (L1) cos 0.33 size 0.13   bare 100% (L1) cos 0.70 size 0.04
+Wrote results/word_swaps_single-google__gemma-3-4b-it.jsonl

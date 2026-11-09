@@ -7,8 +7,8 @@
 
 The page shows the residual stream as a grid (tokens across, layers up), reads
 every cell with the J-lens and the logit lens, shows how attention moves
-information between tokens, plots each layer's PCA, and lets you edit a cell
-and rerun the model from there.
+information between tokens, and lets you edit a cell and rerun the model from
+there.
 
 The same pieces work without the page::
 
@@ -25,7 +25,7 @@ The same pieces work without the page::
 from . import edit, server
 from .blocks import find_blocks
 from .edit import Edit, EditResult, cell, editing, patch, steer, steering_vector, swap, word_direction
-from .flow import flow_weights, layer_pca, mixing, record, trace
+from .flow import flow_weights, mixing, record, trace
 from .lens import PRETRAINED_LENSES, JacobianLens, fit_lens, lens_logits
 from .models import load_model
 from .server import flow_html, make_server, serve
@@ -43,7 +43,6 @@ __all__ = [
     "fit_lens",
     "flow_html",
     "flow_weights",
-    "layer_pca",
     "lens_logits",
     "load_model",
     "make_server",

@@ -168,3 +168,22 @@ def test_neuron_report(model):
     with pytest.raises(ValueError):
         model.neuron_report(TOK, PROMPT, 0, 5)
     assert rec["h"].shape[0] == 4
+
+
+def test_streaming_falls_back_for_bdh(model):
+    """BDH's own generate() can't stream: the server sends the whole answer at once instead of hanging."""
+    import json, threading, urllib.request
+
+    server = rsv.server.make_server(model, TOK, lens=None, port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{server.server_address[1]}/api/generate_stream",
+                                     data=json.dumps({"prompt": "ROMEO:", "max_new_tokens": 4}).encode(), method="POST")
+        raw = urllib.request.urlopen(req, timeout=60).read().decode()
+        events = [e for e in raw.split("\n\n") if e.strip()]
+        kinds = [e.split("\n")[0].removeprefix("event: ") for e in events]
+        assert kinds == ["text", "trace"]
+        assert json.loads(events[-1].split("\n")[1].removeprefix("data: "))["generated"]["n_new"] == 4
+    finally:
+        server.shutdown()
+        server.server_close()

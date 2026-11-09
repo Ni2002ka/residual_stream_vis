@@ -51,11 +51,6 @@ the attention write came from, and three views of the flow:
   to pile onto the first tokens, and "Ignore the first token" drops that
   attention sink.
 
-**PCA.** Below the grid, every token at one layer, projected onto that layer's
-top 2 or 3 principal components (L2-normalized vectors). It follows the
-selected layer; click a point to select its cell. Axes are refit at every
-layer, so compare tokens within a layer.
-
 **Edit a cell and rerun.** Change the selected cell, let every layer above it
 recompute, and compare before and after:
 

@@ -8,7 +8,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,600&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
-<!--RSV_PLOTLY-->
 <style>
 /* Layout: a workbench. Prompt bar on top, the layer × token grid as the main surface, a details rail on the right. */
 :root {
@@ -93,8 +92,6 @@ svg .cell { cursor: pointer; }
 .field textarea { resize: vertical; min-height: 3.2em; }
 .go { background: var(--sel); color: var(--panel); border: 0; border-radius: 5px; padding: 6px 12px; font-weight: 600; font-size: 0.85rem; justify-self: start; }
 .go:disabled { opacity: 0.5; cursor: wait; }
-.pcabox { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; display: grid; gap: 10px; min-width: 0; }
-#pcaplot { width: 100%; height: 480px; }
 .response { background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; font-size: 0.9rem; white-space: pre-wrap; max-height: 14em; overflow: auto; }
 .response b { font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 2px; }
 .sr { position: absolute; left: -9999px; }
@@ -133,7 +130,6 @@ details.fold > summary { cursor: pointer; font-size: 0.78rem; color: var(--muted
 details.card > summary { cursor: pointer; font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; font-weight: 600; }
 details.card[open] > summary { margin-bottom: 4px; }
 .field select { font: inherit; font-size: 0.82rem; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 5px; padding: 4px 6px; }
-details.pcabox > summary { cursor: pointer; font-family: var(--display); font-size: 1.1rem; font-weight: 600; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.78rem; color: var(--muted); align-items: center; }
 .legend i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
 </style>
@@ -240,20 +236,6 @@ details.pcabox > summary { cursor: pointer; font-family: var(--display); font-si
     <div class="gridbox" id="gridbox" tabindex="0" aria-label="Layer by token grid; arrow keys move the selection"><div class="empty">Run a prompt to see its flow.</div></div>
     <div class="rail" id="rail"></div>
   </div>
-
-  <details class="pcabox" id="pcabox" hidden>
-    <summary>PCA: where the tokens sit at layer <span id="pcalayer"></span></summary>
-    <div class="controls" style="margin-top:8px">
-      <span class="seg" id="pcadims" role="group" aria-label="Number of components">
-        <button type="button" data-v="2" aria-pressed="true">2D</button>
-        <button type="button" data-v="3" aria-pressed="false">3D</button>
-      </span>
-      <label for="pcaslider">Layer <input type="range" id="pcaslider" min="0" max="12" value="12"></label>
-      <label for="pcafollow"><input type="checkbox" id="pcafollow" checked> Follow the selected cell</label>
-    </div>
-    <div id="pcaplot" role="img" aria-label="Token vectors at one layer projected onto their top principal components"></div>
-    <p class="note" id="pcanote"></p>
-  </details>
 </div>
 
 <script>
@@ -265,8 +247,8 @@ const short = (s, n = 8) => s.length > n ? s.slice(0, n - 1) + "…" : s;
 const mix = (c, a) => `color-mix(in srgb, ${c} ${Math.max(0, Math.min(100, Math.round(a)))}%, var(--cell0))`;
 const S = { T: null, lens: CFG.lens === false ? "logit" : "jlens", mode: "select", sel: null, thr: 0.04, share: null, frac: null, sink: false, stay: null, move: null,
   orig: null, edited: null, edit: null, change: null, view: "change", prompt: "", busy: false,
-  pca: { dims: 2, layer: null, follow: true }, runmode: "prompt", track: null, headsCache: {}, neuron: null, neuronCache: {}, editOpen: false,
-  form: { kind: "word", source: "", word: " London", amount: 1, a: "", b: "", damount: 1, dir: "unembed", old: "", neww: "", sdir: "jlens" } };
+  runmode: "prompt", track: null, headsCache: {}, neuron: null, neuronCache: {}, editOpen: false,
+  form: { kind: "word", source: "", word: " London", amount: 1, a: "", b: "", damount: 1, dir: "unembed", old: "", neww: "", sdir: "jlens", sstrength: 2 } };
 
 /* ---------- data prep ---------- */
 function densify(T) {
@@ -405,7 +387,6 @@ function render() {
   if (first) { box.scrollLeft = box.scrollWidth; box.scrollTop = 0; } else { box.scrollLeft = sx; box.scrollTop = sy; }
   box.querySelectorAll(".cell").forEach(c => c.addEventListener("click", () => { S.sel = [+c.dataset.l, +c.dataset.p]; render(); }));
   rail();
-  renderPCA();
 }
 
 /* ---------- details rail ---------- */
@@ -478,6 +459,7 @@ function editCard(l, p) {
     ${dirPick("dir", F.dir)}<p class="note">To make this token say the word, the logit-lens direction works best.</p>`;
   if (F.kind === "swap") body = `<div class="field"><label for="eo">Take out (blank = '${tok}')</label><input type="text" id="eo" data-f="old" value="${esc(F.old)}" placeholder="${tok}"></div>
     <div class="field"><label for="en">Put in</label><input type="text" id="en" data-f="neww" value="${esc(F.neww)}"></div>
+    <div class="field"><label for="ess">Strength: <b id="essv" class="mono">${F.sstrength}</b> × the removed component</label><input type="range" id="ess" data-f="sstrength" min="0.5" max="8" step="0.5" value="${F.sstrength}"></div>
     ${dirPick("sdir", F.sdir)}<p class="note">Use it on a token that names something, e.g. spider → ant at ' spider'. J-lens directions work best here.</p>`;
   if (F.kind === "patch") body = `<div class="field"><label for="es">Donor prompt (its last token's cell at layer ${l} replaces this one)</label><textarea id="es" data-f="source" rows="2">${esc(F.source)}</textarea></div>`;
   if (F.kind === "diff") body = `<div class="field"><label for="eA">Prompt A</label><textarea id="eA" data-f="a" rows="2">${esc(F.a)}</textarea></div>
@@ -494,13 +476,14 @@ function wireEditCard() {
   $("rail").querySelectorAll("[data-f]").forEach(inp => inp.addEventListener(inp.tagName === "SELECT" ? "change" : "input", () => {
     const f = inp.dataset.f; S.form[f] = inp.type === "range" ? +inp.value : inp.value;
     if (f === "amount") $("eav").textContent = inp.value; if (f === "damount") $("edv").textContent = inp.value;
+    if (f === "sstrength") $("essv").textContent = inp.value;
   }));
   const go = $("ego"); if (go) go.addEventListener("click", doEdit);
 }
 async function doEdit() {
   const [l, p] = S.sel, F = S.form;
-  const edit = { layer: l, position: p, kind: F.kind, word: F.word, amount: F.kind === "diff" ? F.damount : F.amount, source: F.source, prompt_a: F.a, prompt_b: F.b,
-    direction: F.kind === "swap" ? F.sdir : F.dir, old_word: F.old, new_word: F.neww };
+  const edit = { layer: l, position: p, kind: F.kind, word: F.word, amount: F.kind === "diff" ? F.damount : F.kind === "swap" ? F.sstrength : F.amount, source: F.source, prompt_a: F.a, prompt_b: F.b,
+    direction: F.kind === "swap" ? F.sdir : F.dir, old_word: F.old, new_word: F.neww, track: S.track ? S.track.word : undefined };
   S.busy = true; rail();
   try {
     const r = await fetch("/api/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: S.prompt, edit }) });
@@ -514,7 +497,12 @@ async function doEdit() {
 }
 function setView(v) {
   S.view = v; S.T = v === "original" || !S.edit ? S.orig : S.edited; prepare(S.T); outputLine(); editbar(); render();
-  if (S.track && S.track.edited !== !!(S.edit && v !== "original")) doTrack(S.track.word);
+  const wantEdited = !!(S.edit && v !== "original");
+  if (S.track && S.track.edited !== wantEdited) {
+    const T = wantEdited ? S.edited : S.orig;            // reuse ranks that came back with that run, if any
+    if (!(T && T.track && adoptTrack(T, wantEdited))) doTrack(S.track.word);
+    render();
+  }
 }
 function clearEdit() { S.edit = null; S.edited = null; S.change = null; setView("change"); }
 function editbar() {
@@ -535,57 +523,6 @@ function outputLine() {
   $("output").innerHTML = `<b>Model's next word${S.edit && S.view !== "original" ? " (edited)" : ""}:</b> ` + t.map((w, i) => `<span><span class="tok">${esc(w)}</span> ${pct(p[i], 0)}</span>`).join("");
 }
 
-/* ---------- PCA ---------- */
-const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-function renderPCA() {
-  const T = S.T, box = $("pcabox");
-  if (!T || !T.pca) { box.hidden = true; return; }
-  box.hidden = false;
-  if (S.pca.follow || S.pca.layer == null) S.pca.layer = S.sel[0];
-  $("pcalayer").textContent = Math.min(T.n_blocks, S.pca.layer);
-  if (!box.open) return;
-  const B = T.n_blocks, slider = $("pcaslider");
-  slider.max = B;
-  if (S.pca.follow || S.pca.layer == null) S.pca.layer = S.sel[0];
-  const L = Math.min(B, S.pca.layer); slider.value = L; $("pcalayer").textContent = L;
-  const P = (S.sink ? T.pca.skip_first : T.pca.all)[L], v = P.var;
-  const share = S.pca.dims === 3 ? v[0] + v[1] + v[2] : v[0] + v[1];
-  $("pcanote").textContent = `Each point is one token's vector at layer ${L}, scaled to length 1 and projected onto that layer's top ${S.pca.dims} principal components, which capture ${pct(share, 0)} of the variation between this prompt's tokens. ` +
-    `Points close together point in similar directions. The axes are refit at every layer, so compare tokens within a layer, not positions across layers. Click a point to select its cell.` + (S.sink ? " The first token is left out." : "");
-  if (!window.Plotly) { $("pcaplot").innerHTML = `<div class="empty">The plot library is still loading (or couldn't load).</div>`; return; }
-  const idx = P.xyz.map((c, i) => c ? i : -1).filter(i => i >= 0);
-  const pick = k => idx.map(i => P.xyz[i][k]);
-  const labels = idx.map(i => T.tokens[i].replace(/\n/g, "⏎").replace(/^ /, "␣"));
-  const sel = S.sel[1], ink = css("--ink"), muted = css("--muted"), rule = css("--rule"), selc = css("--sel");
-  const marker = { size: idx.map(i => i === sel ? 14 : 9), color: idx, colorscale: "Viridis", cmin: 0, cmax: Math.max(1, T.tokens.length - 1),
-    line: { width: idx.map(i => i === sel ? 3 : 0.5), color: idx.map(i => i === sel ? selc : rule) },
-    colorbar: { title: { text: "position", font: { color: muted, size: 11 } }, tickfont: { color: muted, size: 10 }, thickness: 10, len: 0.6 } };
-  const hover = idx.map(i => `${T.tokens[i]} (#${i})<br>reads: ${readout(L, i, S.lens)[0][0]}`);
-  const three = S.pca.dims === 3;
-  const traces = [
-    { type: three ? "scatter3d" : "scatter", mode: "lines", x: pick(0), y: pick(1), z: three ? pick(2) : undefined, hoverinfo: "skip",
-      line: { color: rule, width: 1.5 }, showlegend: false },
-    { type: three ? "scatter3d" : "scatter", mode: "markers+text", x: pick(0), y: pick(1), z: three ? pick(2) : undefined,
-      text: labels, textposition: "top center", textfont: { family: "JetBrains Mono, monospace", size: 11, color: ink },
-      marker, hovertext: hover, hoverinfo: "text", customdata: idx, showlegend: false },
-  ];
-  const ax = (k) => ({ title: { text: `PC${k + 1} (${pct(v[k], 0)})`, font: { color: muted, size: 11 } }, tickfont: { color: muted, size: 10 },
-    gridcolor: rule, zerolinecolor: rule, color: muted });
-  const layout = { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", margin: { l: 50, r: 10, t: 10, b: 40 },
-    font: { family: "Public Sans, system-ui, sans-serif", color: ink }, uirevision: `${T.prompt}|${S.pca.dims}`,
-    xaxis: ax(0), yaxis: ax(1), scene: { xaxis: ax(0), yaxis: ax(1), zaxis: ax(2), bgcolor: "rgba(0,0,0,0)" } };
-  Plotly.react("pcaplot", traces, layout, { displaylogo: false, responsive: true });
-  const el = $("pcaplot");
-  if (!el._rsvClick) { el.on("plotly_click", ev => { const pt = ev.points.find(q => q.customdata != null); if (pt) { S.sel = [S.pca.layer, pt.customdata]; render(); } }); el._rsvClick = true; }
-}
-document.querySelectorAll("#pcadims button").forEach(b => b.addEventListener("click", () => {
-  S.pca.dims = +b.dataset.v; document.querySelectorAll("#pcadims button").forEach(x => x.setAttribute("aria-pressed", x === b)); renderPCA();
-}));
-$("pcaslider").addEventListener("input", e => { S.pca.follow = false; $("pcafollow").checked = false; S.pca.layer = +e.target.value; renderPCA(); });
-$("pcafollow").addEventListener("change", e => { S.pca.follow = e.target.checked; renderPCA(); });
-window.addEventListener("load", () => renderPCA());
-$("pcabox").addEventListener("toggle", () => renderPCA());
-
 /* ---------- controls ---------- */
 function setMode(m) { S.mode = m; render(); }
 function setLens(v) { S.lens = v; if (S.track) trackNote(); document.querySelectorAll("#lensseg button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === v)); render(); }
@@ -598,9 +535,15 @@ $("gridbox").addEventListener("keydown", e => {
   S.sel = [Math.max(0, Math.min(S.T.n_blocks, l + d[0])), Math.max(0, Math.min(S.T.tokens.length - 1, p + d[1]))]; render();
 });
 
+function adoptTrack(T, edited) {
+  // ranks that came back with a run, computed in the same pass as its readouts
+  if (!T.track || !S.track) return false;
+  S.track = { word: S.track.word, token: T.track.token, n_tokens: T.track.n_tokens, logit: T.track.logit, jlens: T.track.jlens || null, edited };
+  trackNote(); return true;
+}
 function show(T) {
   S.orig = T; S.T = T; S.prompt = T.prompt; S.edit = null; S.edited = null; S.change = null; S.view = "change"; S.headsCache = {}; S.neuronCache = {}; S.neuron = null; prepare(T);
-  showResponse(T); if (S.track) { const w = S.track.word; S.track = null; if (CFG.live) doTrack(w); }
+  showResponse(T); if (S.track && !adoptTrack(T, false)) { const w = S.track.word; S.track = null; if (CFG.live) doTrack(w); }
   S.sel = [T.n_blocks, T.tokens.length - 1];
   document.querySelectorAll("#lensseg button").forEach(b => { b.disabled = b.dataset.v === "jlens" && !T.readouts.jlens; b.setAttribute("aria-pressed", b.dataset.v === S.lens); });
   outputLine(); editbar();
@@ -611,12 +554,41 @@ async function run() {
   const gen = S.runmode === "generate";
   $("run").disabled = true; $("status").className = "status"; $("status").textContent = gen ? "Generating a response, then tracing it…" : "Running the model…";
   try {
-    const body = gen ? { prompt, chat: $("usechat").checked, max_new_tokens: +$("maxnew").value || 160 } : { prompt };
-    const r = await fetch(gen ? "/api/generate" : "/api/trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const T = await r.json(); if (!r.ok) throw new Error(T.error || r.statusText);
+    const track = S.track ? S.track.word : undefined;
+    let T;
+    if (gen) T = await generateStreaming({ prompt, chat: $("usechat").checked, max_new_tokens: +$("maxnew").value || 160, track });
+    else {
+      const r = await fetch("/api/trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, track }) });
+      T = await r.json(); if (!r.ok) throw new Error(T.error || r.statusText);
+    }
     show(T); $("status").textContent = `${T.tokens.length} tokens · ${T.n_blocks} layers · ${T.seconds}s`;
   } catch (e) { $("status").className = "status err"; $("status").textContent = "Couldn't run it: " + e.message; }
   finally { $("run").disabled = false; }
+}
+
+/* ---------- streaming generation ---------- */
+async function generateStreaming(body) {
+  // show the answer as it's written, then trace it
+  const box = $("response"); box.hidden = false;
+  box.innerHTML = `<b>Model's response (writing…)</b><span id="streamtext"></span>`;
+  const r = await fetch("/api/generate_stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok || !r.body) throw new Error(r.statusText || "streaming failed");
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = "", text = "", result = null;
+  while (true) {
+    const { value, done } = await reader.read(); if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let cut;
+    while ((cut = buf.indexOf("\n\n")) >= 0) {
+      const chunk = buf.slice(0, cut); buf = buf.slice(cut + 2);
+      const kind = (chunk.match(/^event: (.*)$/m) || [])[1], data = JSON.parse((chunk.match(/^data: (.*)$/m) || [])[1] || "null");
+      if (kind === "text") { text += data; $("streamtext").textContent = text; $("status").textContent = "Writing the answer… then tracing it"; }
+      else if (kind === "trace") result = data;
+      else if (kind === "error") throw new Error(data);
+    }
+  }
+  if (!result) throw new Error("the stream ended early");
+  return result;
 }
 
 /* ---------- per-head detail (fetched per cell for long prompts) ---------- */
@@ -726,10 +698,9 @@ if (CFG.live) {
   $("run").addEventListener("click", run);
   $("prompt").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); run(); } });
   $("genbox").addEventListener("change", () => setRunMode($("genbox").checked ? "generate" : "prompt"));
-  setRunMode(CFG.chat ? "generate" : "prompt");
+  setRunMode("prompt");  // read a prompt by default, also for chat models; "Let the model answer" turns on generation
   if (!CFG.lens) document.querySelector('#lensseg [data-v="jlens"]').disabled = true;
-  if (!CFG.chat) { $("prompt").value = (CFG.examples || [])[0] || ""; if ($("prompt").value) run(); }
-  else $("prompt").value = (CFG.chat_examples || [])[0] || "";
+  $("prompt").value = (CFG.examples || [])[0] || ""; if ($("prompt").value) run();
 } else {
   $("runcol").hidden = true; $("prompt").readOnly = true; $("trackrow").hidden = true; $("genopts").style.display = "none";
   const traces = CFG.traces || [];

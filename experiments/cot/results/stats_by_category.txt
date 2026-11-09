@@ -1,0 +1,132 @@
+EXPERIMENT B  ---  gemma-3-4b-it  ---  readable-before-reasoning, stats by task type
+500 questions (100 per regime, seed 0).  Readable stats are over CORRECT rows only.
+LL = logit lens (raw residual).  JL = J-lens (transported).  Layers 0..34.
+rel-pos = (pos - start)/(written - start); <= 0 means before any reasoning token.
+margins: median over correct rows with a defined margin (NaNs excluded).
+
+==========================================================================
+RETRIEVAL   [SciQ (science) + function_vectors country-capital]
+==========================================================================
+  questions ................ 100
+  correct (auto-grade) ..... 58  (58.0%)
+  prefix_ok failures ....... 0
+
+  readable BEFORE reasoning (correct rows, n=58)        Logit lens        J-lens
+    answer rank #1  (top1) .................     41 ( 70.7%)     44 ( 75.9%)
+    answer rank <=5 (top5) .................     53 ( 91.4%)     56 ( 96.6%)
+    distractor rank #1 (control) ..........      2 (  3.4%)      4 (  6.9%)
+    answer - distractor gap ...............      +67.2pp      +69.0pp
+
+  when readable, how early:
+    median first layer (0..34) ............          26          22
+    median relative position ..............       -0.05       -0.05
+
+  margins (median over correct rows):
+    answer - top lure .....................       15.31       17.12
+    answer - runner-up token ..............        0.88        1.75
+
+==========================================================================
+MULTIHOP   [compositional_celebrities (two-hop entity)]
+==========================================================================
+  questions ................ 100
+  correct (auto-grade) ..... 38  (38.0%)
+  prefix_ok failures ....... 0
+
+  readable BEFORE reasoning (correct rows, n=38)        Logit lens        J-lens
+    answer rank #1  (top1) .................     10 ( 26.3%)     12 ( 31.6%)
+    answer rank <=5 (top5) .................     20 ( 52.6%)     20 ( 52.6%)
+    distractor rank #1 (control) ..........      0 (  0.0%)      1 (  2.6%)
+    answer - distractor gap ...............      +26.3pp      +28.9pp
+
+  when readable, how early:
+    median first layer (0..34) ............          27          24
+    median relative position ..............       -0.07       -0.07
+
+  margins (median over correct rows):
+    answer - top lure .....................       22.23       49.62
+    answer - runner-up token ..............        0.75        2.25
+
+==========================================================================
+PATTERN   [function_vectors antonym + present-past (in-context induction)]
+==========================================================================
+  questions ................ 100
+  correct (auto-grade) ..... 39  (39.0%)
+  prefix_ok failures ....... 0
+
+  readable BEFORE reasoning (correct rows, n=39)        Logit lens        J-lens
+    answer rank #1  (top1) .................     22 ( 56.4%)     22 ( 56.4%)
+    answer rank <=5 (top5) .................     36 ( 92.3%)     36 ( 92.3%)
+    distractor rank #1 (control) ..........     31 ( 79.5%)     38 ( 97.4%)
+    answer - distractor gap ...............      -23.1pp      -41.0pp
+
+  when readable, how early:
+    median first layer (0..34) ............          25          25
+    median relative position ..............       -1.33       -1.33
+
+  margins (median over correct rows):
+    answer - top lure .....................        4.03       12.12
+    answer - runner-up token ..............        0.44        2.50
+
+==========================================================================
+SERIAL   [ProofWriter deduction + bAbI qa1 state-tracking]
+==========================================================================
+  questions ................ 100
+  correct (auto-grade) ..... 59  (59.0%)
+  prefix_ok failures ....... 0
+
+  readable BEFORE reasoning (correct rows, n=59)        Logit lens        J-lens
+    answer rank #1  (top1) .................     14 ( 23.7%)     18 ( 30.5%)
+    answer rank <=5 (top5) .................     33 ( 55.9%)     42 ( 71.2%)
+    distractor rank #1 (control) ..........      0 (  0.0%)      7 ( 11.9%)
+    answer - distractor gap ...............      +23.7pp      +18.6pp
+
+  when readable, how early:
+    median first layer (0..34) ............          32          17
+    median relative position ..............       -0.09       -0.08
+
+  margins (median over correct rows):
+    answer - top lure .....................       16.88       21.18
+    answer - runner-up token ..............        1.25        1.38
+
+==========================================================================
+ORDERING   [BIG-Bench Hard logical_deduction 3/5/7-objects (comparisons)]
+==========================================================================
+  questions ................ 100
+  correct (auto-grade) ..... 55  (55.0%)
+  prefix_ok failures ....... 0
+
+  readable BEFORE reasoning (correct rows, n=55)        Logit lens        J-lens
+    answer rank #1  (top1) .................      2 (  3.6%)      1 (  1.8%)
+    answer rank <=5 (top5) .................      3 (  5.5%)      6 ( 10.9%)
+    distractor rank #1 (control) ..........      5 (  9.1%)      5 (  9.1%)
+    answer - distractor gap ...............       -5.5pp       -7.3pp
+
+  when readable, how early:
+    median first layer (0..34) ............          33          33
+    median relative position ..............       -0.05       -0.05
+
+  margins (median over correct rows):
+    answer - top lure .....................       13.89       11.94
+    answer - runner-up token ..............        0.25        0.38
+
+==========================================================================
+ALL
+==========================================================================
+  questions ................ 500
+  correct (auto-grade) ..... 249  (49.8%)
+  prefix_ok failures ....... 0
+
+  readable BEFORE reasoning (correct rows, n=249)        Logit lens        J-lens
+    answer rank #1  (top1) .................     89 ( 35.7%)     97 ( 39.0%)
+    answer rank <=5 (top5) .................    145 ( 58.2%)    160 ( 64.3%)
+    distractor rank #1 (control) ..........     38 ( 15.3%)     55 ( 22.1%)
+    answer - distractor gap ...............      +20.5pp      +16.9pp
+
+  when readable, how early:
+    median first layer (0..34) ............          26          23
+    median relative position ..............       -0.06       -0.06
+
+  margins (median over correct rows):
+    answer - top lure .....................       14.72       17.00
+    answer - runner-up token ..............        0.75        1.75
+
