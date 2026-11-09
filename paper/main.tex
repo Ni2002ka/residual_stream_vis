@@ -222,8 +222,7 @@ the swap, the reverse holds. As a \textbf{\emph{ceiling}} for a best-case edit, 
 the model holds for the new entity.
 
 \textbf{Setup:} We tested this on four function-vector tasks~\cite{todd2024function} (country--capital,
-product--company, antonym, English--French) as five-shot ``Q:~x / A:~y'' prompts, and on a leg-count prompt (``How
-many legs does a spider have?''), editing one cell at every layer. The \emph{push} adds a word's direction to the last
+product--company, antonym, English--French) as five-shot ``Q:~x / A:~y'' prompts, editing one cell at every layer. The \emph{push} adds a word's direction to the last
 token's cell, scaled to the cell's own length ($\alpha=1$); it succeeds if the word, another item's answer, becomes the
 top prediction. A \emph{swap} removes the entity token's component along the old entity's direction and adds twice
 that amount along the new one's ($s=2$); it succeeds if the model gives the new entity's answer. Each edit uses either
@@ -239,7 +238,7 @@ entity cell from a prompt that names the desired answer.
     swap, but along a random direction. \emph{Copy cell:} success when the whole entity cell is copied from a prompt
     naming the new entity, our empirical ceiling for a single-cell edit.
     % country--capital 79,
-    % product--company 25, antonym 100, English--French 100, leg count 31; swap pairs: 100 per task (95 for
+    % product--company 25, antonym 100, English--French 100; swap pairs: 100 per task (95 for
     % product--company).
     Random pushes succeed on at most 4\% of items at any layer. The rates are not sensitive to choosing the best layer
     on the same pairs it is scored on: choosing it on a random half and scoring the other half (20 split trials)
@@ -279,9 +278,9 @@ entity cell from a prompt that names the desired answer.
 \end{figure*}
 \;
 \textbf{Push: use the \LL{} direction.} On every task, the \LL{} push makes the target the top prediction for at least
-90\% of items from layer 6--9 on; the \JL{} push gets there only at layer 16--30 (\cref{tab:directions},
-\cref{fig:directions}a). Compared layerwise, the gap is large: at the layer where the \LL{} push works best (7--10), it succeeds on every item, and the
-\JL{} push on only 0--16\% of them ($p<10^{-7}$ on every task, exact McNemar test on the paired outcomes).
+90\% of items from layer 6--8 on; the \JL{} push gets there only at layer 22--30 (\cref{tab:directions},
+\cref{fig:directions}a). Compared layerwise, the gap is large: at the layer where the \LL{} push works best (7--9), it succeeds on every item, and the
+\JL{} push on only 0--7\% of them ($p<10^{-7}$ on every task, exact McNemar test on the paired outcomes).
 
 \begin{figure}[H]
   \centering
@@ -560,7 +559,7 @@ because it lets us causally probe how a language model reasons and where its ans
 
 \textbf{The \JL{} and \LL es are complementary.} The \JL{} reads ideas earlier than the \LL: the intermediate state in
 two-hop questions (layer~7 against 22), and answers before their reasoning in every task type, by one to two layers. But the lens that reads an idea earliest is not the one that writes an output best. To set what
-a token outputs, the \LL{} direction works from layers 6--9 and the \JL{} direction only from 16--30; to change what
+a token outputs, the \LL{} direction works from layers 6--8 and the \JL{} direction only from 22--30; to change what
 later tokens read, the \JL{} direction is the one that works. A viewer should therefore offer both lenses for reading,
 and choose the direction for each edit by its purpose.
 
