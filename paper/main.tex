@@ -272,7 +272,7 @@ entity cell from a prompt that names the desired answer.
     from layer~28 ($n=79$). (b) Swapping the country for another at its own token: the \JL{} direction succeeds in the
     middle layers ($n=100$ pairs), up to the handoff, where copying the cells after the country starts to beat copying
     the country's own cell (black lines, 20 pairs). Bands are bootstrap 95\% CIs. (c) Cosine between the two
-    directions for the same word, over the 208 words pushed toward (band: interquartile range): nearly perpendicular
+    directions for the same word, over the 203 words pushed toward (band: interquartile range): nearly perpendicular
     through layer~12, converging near the top.}
   \label{fig:directions}
 \end{figure*}
@@ -296,7 +296,7 @@ entity cell from a prompt that names the desired answer.
 
 
 \textbf{Why the two differ:} For the same word, the two directions are almost uncorrelated through the middle of the
-model: averaged over the 208 words pushed toward, their cosine is 0.07 at layer~8 and 0.31 at layer~20, and they
+model: averaged over the 203 words pushed toward, their cosine is 0.06 at layer~8 and 0.31 at layer~20, and they
 become similar only near the top (0.51 at layer~27, 0.79 at layer~33; \cref{fig:directions}c). They stand for
 different things. The \LL{} direction is the word as the top layer reads it at this token: added to the last token,
 it rides the residual connections to the output almost unchanged, and the model says the word.
@@ -461,7 +461,7 @@ layer~24 the answer depends more on the city token, and from layer~25 on the las
 still does not redirect the answer: it gives the new state's capital for at most 8\% (U.S.) and 22\% (world) of
 pairs (\cref{fig:twohop}d). On the Dallas question it makes the model say \emph{California}, the state, rather than
 \emph{Sacramento} (\cref{fig:twohopviewer}c--d). A static map of lens readings would show \emph{Texas} at both
-tokens. Our viewer allowed us to understand how the model computes the capital from the one at the city token.
+tokens. Editing shows that the model computes the capital from the copy at the city token, not from the one at the last token.
 
 \section{Scenario C: Answers Before Their Reasoning}
 \label{sec:cot}
