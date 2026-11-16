@@ -15,14 +15,40 @@ Note: GPT2 is much smaller than Gemma, and often get answers wrong.
 
 ## Install
 
+macOS / Linux:
+
 ```bash
 python -m venv .venv
 .venv/bin/pip install -e .
 .venv/bin/residual-stream-vis gpt2
 ```
 
+Windows (PowerShell):
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install -e .
+.venv\Scripts\residual-stream-vis gpt2
+```
+
 The first run downloads the model and its J-lens from the Hugging Face Hub.
-After that, `HF_HUB_OFFLINE=1` skips the network checks.
+After that, `HF_HUB_OFFLINE=1` skips the network checks (PowerShell:
+`$env:HF_HUB_OFFLINE = "1"`).
+
+### NVIDIA GPU on Windows (and Linux)
+
+On Windows, `pip install torch` gives a CPU-only build, so the CUDA GPU goes
+unused. Swap in a CUDA build from PyTorch's index, choosing the CUDA tag your
+driver supports (`nvidia-smi` shows it; see [pytorch.org](https://pytorch.org/get-started/locally/)):
+
+```powershell
+.venv\Scripts\pip install --force-reinstall --no-deps torch --index-url https://download.pytorch.org/whl/cu130
+.venv\Scripts\python -c "import torch; print(torch.cuda.is_available())"   # True
+```
+
+Re-running `pip install -e .` keeps the CUDA build, since it already satisfies
+the requirement. The device is picked automatically (CUDA, then Apple GPU, then
+CPU); `--device cpu` overrides it. An 8 GB card runs Gemma-3-1B comfortably.
 
 ## What the page shows
 
@@ -54,11 +80,6 @@ the attention write came from, and three views of the flow:
   to pile onto the first tokens, and "Ignore the first token" drops that
   attention sink.
 
-**PCA.** Below the grid, every token at one layer, projected onto that layer's
-top 2 or 3 principal components (L2-normalized vectors). It follows the
-selected layer; click a point to select its cell. Axes are refit at every
-layer, so compare tokens within a layer.
-
 **Edit a cell and rerun.** Change the selected cell, let every layer above it
 recompute, and compare before and after:
 
@@ -88,6 +109,22 @@ swap spider → ant at the ` spider` token, layer 8, and the answer goes from
 **What changed** shades every cell by how much it moved: only the edited cell
 and cells above and to the right of it can change.
 
+**Chain of thought.** With an instruction-tuned model, **Generate a response**
+lets the model answer step by step (using its chat template); the grid then
+covers your message and its response. **Track a word** colors every cell by
+how highly a lens ranks one word, so you can see whether the answer is already
+there before the model writes its reasoning:
+
+```bash
+residual-stream-vis google/gemma-3-4b-it      # ~8 GB download; needs a GPU
+```
+
+On Gemma-3-4B-it, for "The Eiffel Tower is in a country. What is the capital of
+that country? Think step by step.", both lenses rank ` Paris` #1 at the newline
+that closes the question (layer 26 of 34), before any of the written steps. The
+same holds for the built-in aunt and ball-in-box questions, but not for "who is
+the shortest?". Track one-token words: Gemma writes numbers digit by digit.
+
 ## Models
 
 Blocks are found automatically for GPT-2, Llama, Mistral, Qwen, Gemma and most
@@ -104,8 +141,48 @@ lens.save("my_lens.pt")
 residual-stream-vis my/model --lens my_lens.pt
 ```
 
+### Baby Dragon Hatchling (BDH)
+
+[BDH](https://arxiv.org/abs/2509.26507) (Pathway, 2025) swaps the Transformer
+block for a layer of sparse, positive neurons and linear attention, with one
+set of weights shared by every layer. No trained weights are published, so
+train one; the J-lens is fitted at the end and saved beside the checkpoint.
+For word-level cells, comparable with GPT-2, train on WikiText-103 with GPT-2's
+tokenizer (needs `pip install -e ".[train]"`; about 2.5 hours on an M2 Pro):
+
+```bash
+python -m residual_stream_vis.bdh --data wikitext --tokenizer gpt2 --iters 5000
+residual-stream-vis checkpoints/bdh-wikitext-gpt2.pt
+```
+
+The reference setup, bytes on tiny Shakespeare, is the default
+(`python -m residual_stream_vis.bdh --iters 2000`, about an hour). Its cells
+are single letters, so the lenses and word edits work on letters too.
+`--lens-only` refits a checkpoint's J-lens without training.
+
+The page works as it does for GPT-2 and Gemma, with these differences in what
+the cells mean (details in `residual_stream_vis/bdh.py`):
+
+- **Attention** is BDH's unnormalized linear attention. A token never attends
+  to itself, so the first column never changes, and each query's shares are
+  its `|scores|` scaled to sum to 1.
+- **A block's update** is `ln(x + y)`. It splits exactly into the
+  **neuron write** `y` (neurons that fire both for this token and for what
+  attention read, so the only part that moves information between tokens)
+  and the **norm rescale** of `x` by the layer norm, shown where the MLP would be.
+- **Neurons.** A BDH-only card lists the neurons that wrote the selected
+  cell's update (its share of all firing there), the words each one's output
+  raises most, and the words whose embedding excites it most. It also says
+  what fraction of the layer's neurons fired: they're sparse. Click a neuron
+  to shade the grid by where it fires across the prompt, to check whether it
+  means one thing.
+
+The model is the reference `bdh.py` laid out so the viewer can hook into it
+(the tests check that its logits match exactly). Weights saved from
+Pathway's `train.py` load too, with `rsv.bdh.from_reference_state_dict`.
+
 A prompt is one forward pass plus a lens readout of every cell. On an Apple
-GPU (picked automatically) Gemma-3-1B takes about 3 seconds; on CPU the readout
+GPU (picked automatically; CUDA GPUs are too) Gemma-3-1B takes about 3 seconds; on CPU the readout
 against its 262k-word vocabulary takes minutes, so use a GPU for Gemma.
 
 Command-line options: `--port`, `--host`, `--device`, `--lens auto|none|PATH`,
@@ -150,11 +227,11 @@ so fitted and published lenses are interchangeable. The method is from
 ## Development
 
 ```bash
-.venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest
+.venv/bin/pip install -e ".[dev]"       # Windows: .venv\Scripts\pip install -e ".[dev]"
+.venv/bin/pytest                        # Windows: .venv\Scripts\pytest
 ```
 
-The tests build tiny random GPT-2, Llama and Gemma-3 models, so they run
+The tests build tiny random GPT-2, Llama, Gemma-3 and BDH models, so they run
 offline in seconds.
 
 

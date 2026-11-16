@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> None:
                              "to load the published lens when there is one")
     parser.add_argument("--no-browser", action="store_true", help="Don't open a browser")
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)  # old spelling; serving is the default now
-    args = parser.parse_args(argv)
+    args = parser.parse_intermixed_args(argv)  # lets example prompts follow flags on older Pythons too
 
     from .server import serve
 

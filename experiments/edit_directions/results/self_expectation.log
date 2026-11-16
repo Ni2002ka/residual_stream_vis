@@ -1,0 +1,17 @@
+Loading weights:   0%|          | 0/883 [00:00<?, ?it/s]Loading weights:  54%|█████▎    | 473/883 [00:00<00:00, 4726.45it/s]Loading weights: 100%|██████████| 883/883 [00:00<00:00, 6410.43it/s]
+  frame 0 done
+  frame 1 done
+
+Per task: median self-expectation (nats) and median J-lens rank of the word at its own token
+  country-capital  expect  8.98   L1      3  L4      1  L8      0  L12      0
+  product-company  expect  8.11   L1      0  L4      0  L8      0  L12      0
+  legs             expect  8.17   L1      4  L4      3  L8      0  L12      2
+  antonym          expect  5.13   L1    217  L4     96  L8      8  L12     35
+  english-french   expect  6.59   L1    438  L4    121  L8      7  L12     15
+
+Spearman(self-expectation, -J-lens rank): pooled, then within each task
+  L 1  pooled  0.59  country-capital -0.14  product-company  0.03  legs  0.44  antonym  0.01  english-french  0.42
+  L 4  pooled  0.61  country-capital -0.20  product-company -0.03  legs  0.55  antonym -0.03  english-french  0.29
+  L 8  pooled  0.57  country-capital  0.02  product-company -0.06  legs  0.30  antonym -0.17  english-french  0.55
+  L12  pooled  0.53  country-capital -0.18  product-company -0.06  legs  0.38  antonym -0.14  english-french  0.52
+Wrote /Users/nika/Documents/residual_stream_vis/experiments/edit_directions/results/self_expectation-google__gemma-3-4b-it.jsonl

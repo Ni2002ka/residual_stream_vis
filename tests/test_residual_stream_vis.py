@@ -20,8 +20,8 @@ class CharTokenizer:
         t = torch.tensor([ids])
         return {"input_ids": t, "attention_mask": torch.ones_like(t)}
 
-    def decode(self, ids):
-        return "".join("<bos>" if i == 1 else chr(i - 2 + 32) for i in ids)
+    def decode(self, ids, skip_special_tokens=False):
+        return "".join(("" if skip_special_tokens else "<bos>") if i == 1 else "" if i == 0 else chr(i - 2 + 32) for i in ids)
 
 
 def tiny_models():
@@ -82,20 +82,6 @@ def test_record_cleans_up_and_records_attention(model):
     assert att.shape == (3, 2, n, n)
     torch.testing.assert_close(att.sum(-1), torch.ones(3, 2, n))  # rows are distributions
     assert torch.triu(att, diagonal=1).abs().max() == 0          # causal
-
-
-def test_pca_matches_numpy_variance():
-    from residual_stream_vis.flow import pca
-
-    torch.manual_seed(0)
-    x = torch.randn(50, 10) @ torch.randn(10, 10)
-    proj, ratio = pca(x, 3)
-    centered = (x - x.mean(0)).double()
-    eig = torch.linalg.eigvalsh(centered.T @ centered).flip(0)
-    torch.testing.assert_close(ratio.double(), (eig[:3] / eig.sum()), rtol=1e-4, atol=1e-6)
-    torch.testing.assert_close(proj.var(0).double(), eig[:3] / 49, rtol=1e-4, atol=1e-6)
-    proj, ratio = pca(torch.randn(2, 8), 3)  # fewer samples than components
-    assert proj.shape == (2, 3) and ratio.shape == (3,)
 
 
 def test_head_writes_reconstruct_attention_output(model):
@@ -246,15 +232,11 @@ def test_flow_server_and_static_page(tmp_path):
         req = urllib.request.Request(url + "/api/trace", data=json.dumps({"prompt": "hi there"}).encode(), method="POST")
         data = json.loads(urllib.request.urlopen(req).read())
         assert data["tokens"][0] == "<bos>" and data["n_blocks"] == 3
-        assert len(data["pca"]["all"]) == 4 and data["pca"]["skip_first"][2]["xyz"][0] is None
-        assert all(len(c) == 3 for c in data["pca"]["all"][2]["xyz"])
-        assert len(urllib.request.urlopen(url + "/plotly.min.js").read()) > 1_000_000
     finally:
         server.shutdown()
         server.server_close()
     html = rsv.flow_html(data, tmp_path / "flow.html")
-    assert (tmp_path / "flow.html").exists() and '"live": false' in html and "cdn.jsdelivr.net" in html
-    assert "<!--RSV_PLOTLY-->" not in rsv.flow_html(data, plotly="inline")
+    assert (tmp_path / "flow.html").exists() and '"live": false' in html and "pcabox" not in html
 
 
 def test_patch_identity_and_last_layer_transplant(model):
@@ -330,6 +312,9 @@ def test_flow_server_edit_endpoint():
         assert code == 200
         code, d = post({"layer": 2, "position": 5, "kind": "swap", "old_word": "", "new_word": "z", "direction": "unembed"})
         assert code == 200 and "Swapped" in d["edit"]["description"] and d["change"][2][5] > 0
+        assert "strength 2" in d["edit"]["description"]  # the default
+        code, d4 = post({"layer": 2, "position": 5, "kind": "swap", "new_word": "z", "direction": "unembed", "amount": 4})
+        assert code == 200 and "strength 4" in d4["edit"]["description"] and d4["change"][2][5] > d["change"][2][5]
         code, d = post({"layer": 2, "position": 5, "kind": "word", "word": "z", "direction": "jlens"})
         assert code == 400 and "J-lens" in d["error"]  # this server has no lens
         code, d = post({"layer": 1, "position": 3, "kind": "patch", "source": ""})
@@ -337,18 +322,6 @@ def test_flow_server_edit_endpoint():
     finally:
         server.shutdown()
         server.server_close()
-
-
-def test_layer_pca(model):
-    from residual_stream_vis.flow import layer_pca, pca, record
-
-    h = record(model, CharTokenizer(), "the cat sat")["h"]
-    got = layer_pca(h)
-    want, ratio = pca(torch.nn.functional.normalize(h[2], dim=-1), 3)
-    torch.testing.assert_close(torch.tensor(got[2]["xyz"]), want, atol=1e-3, rtol=1e-3)
-    assert got[2]["var"] == pytest.approx(ratio.tolist(), abs=1e-3)
-    skip = layer_pca(h, skip_first=True)
-    assert skip[2]["xyz"][0] is None and len(skip[2]["xyz"]) == h.shape[1]
 
 
 def test_swap_and_direction_kinds(model):
@@ -409,3 +382,146 @@ def test_cli_accepts_old_serve_flag(monkeypatch):
     main(["gpt2", "--serve", "--no-browser", "--lens", "none", "Hello there"])
     (args, kw), = calls
     assert args == ("gpt2",) and kw["lens"] is None and kw["examples"] == ["Hello there"] and not kw["open_browser"]
+
+
+def test_trace_sparse_move_and_long_prompt_heads():
+    from residual_stream_vis import flow
+
+    model, tok = MODELS["llama"].eval(), CharTokenizer()
+    rec = flow.record(model, tok, "the cat sat")
+    data = flow.trace_record(rec, model, tok, "the cat sat")
+    _, move = flow.mixing(rec)
+    for b in range(3):  # the sparse pairs are exactly the shares above the cut-off
+        for i, pairs in enumerate(data["move"][b]):
+            want = {j: float(move[b, i, j]) for j in range(i) if move[b, i, j] >= flow.MOVE_MIN}
+            assert {j: v for j, v in pairs} == pytest.approx(want, abs=1e-4)
+    assert data["heads"] is not None
+    long_prompt = "a" * (flow.HEADS_INLINE_MAX + 5)
+    long_rec = flow.record(model, tok, long_prompt)
+    assert flow.trace_record(long_rec, model, tok, long_prompt)["heads"] is None
+    h = flow.heads_at(long_rec, 1, 10)
+    assert len(h) == 2 and sum(map(sum, h)) == pytest.approx(1, abs=1e-3)
+
+
+def test_server_generate_track_and_heads():
+    import json, threading, urllib.request
+
+    model, tok = MODELS["gpt2"].eval(), CharTokenizer()
+    server = rsv.server.make_server(model, tok, lens=None, port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+
+    def post(path, body):
+        req = urllib.request.Request(base + path, data=json.dumps(body).encode(), method="POST")
+        return json.loads(urllib.request.urlopen(req).read())
+
+    try:
+        d = post("/api/generate", {"prompt": "the cat", "max_new_tokens": 4})
+        g = d["generated"]
+        assert g["n_new"] == 4 and not g["chat"] and g["start"] == len("the cat") + 1  # + <bos>
+        assert len(d["tokens"]) == g["start"] + 4 and d["prompt"].startswith("the cat")
+        t = post("/api/track", {"prompt": d["prompt"], "word": "a"})
+        assert len(t["logit"]) == 4 and len(t["logit"][2]) == len(d["tokens"]) and min(map(min, t["logit"])) >= 1
+        h = post("/api/heads", {"prompt": d["prompt"], "block": 1, "position": 3})
+        assert len(h["heads"]) == 2 and len(h["heads"][0]) == len(d["tokens"])
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_track_ranks_match_readout(model):
+    from residual_stream_vis import flow
+
+    tok = CharTokenizer()
+    lens = rsv.fit_lens(model, tok, ["the cat sat on a mat"], skip_first=1, progress=False)
+    rec = flow.record(model, tok, "the cat sat")
+    t = flow.track(rec, model, tok, "a", lens)
+    top = flow.trace_record(rec, model, tok, "the cat sat", lens)["readouts"]
+    for lens_name in ("logit", "jlens"):
+        for layer in (1, 3):
+            for pos, r in enumerate(t[lens_name][layer]):
+                words = top[lens_name][layer][pos][0]
+                assert (r == 1) == (words[0] == "a")
+    assert t["jlens"][0] is None
+
+
+def test_word_token_prefers_the_leading_space_form():
+    from residual_stream_vis.edit import word_token
+
+    class Tok:  # " Paris" and "Paris" are both single tokens; " 7" is two, "7" is one
+        vocab = {" Paris": 1, "Paris": 2, "7": 3, " ": 4}
+        def __call__(self, text, add_special_tokens=True):
+            return {"input_ids": [self.vocab[text]] if text in self.vocab else [self.vocab[" "], self.vocab[text.strip()]]}
+    token_str = {1: " Paris", 2: "Paris", 3: "7", 4: " "}
+    import residual_stream_vis.edit as E
+    orig = E.token_str
+    E.token_str = lambda tok, i: token_str[i]
+    try:
+        assert word_token(Tok(), "Paris") == (1, " Paris")
+        assert word_token(Tok(), "7") == (3, "7")
+        assert word_token(Tok(), " 7") == (3, "7")
+    finally:
+        E.token_str = orig
+
+
+
+def test_topk_rows_matches_torch_topk():
+    from residual_stream_vis.flow import topk_rows
+
+    torch.manual_seed(0)
+    for V in (5000, 5000 + 77, 8):                    # whole blocks, a leftover tail, fewer blocks than k
+        x = torch.randn(7, V)
+        a, b = x.topk(5, -1), topk_rows(x, 5, block=64)
+        assert torch.equal(a.values, b.values) and torch.equal(a.indices, b.indices)
+
+
+def test_read_cells_matches_lens_logits(model):
+    from residual_stream_vis.flow import read_cells, record
+
+    tok = CharTokenizer()
+    lens = rsv.fit_lens(model, tok, ["the cat sat on a mat"], skip_first=1, progress=False)
+    h = record(model, tok, "the cat sat")["h"]
+    for L, layers in ((None, [0, 2, 3]), (lens, lens.layers)):
+        probs, ids, ranks = read_cells(model, L, h, layers, k=3, track_ids=[5, 9], chunk=7)
+        for a, layer in enumerate(layers):
+            lg = rsv.lens_logits(model, L, h[layer], layer)
+            top = lg.softmax(-1).topk(3, -1)
+            torch.testing.assert_close(probs[a], top.values, rtol=1e-4, atol=1e-5)
+            assert torch.equal(ids[a], top.indices)
+            for j, t in enumerate([5, 9]):
+                want = (lg > lg[:, t:t + 1]).sum(-1) + 1
+                # batching can reorder words whose scores differ only by rounding; allow that and nothing else
+                near_tie = ((lg - lg[:, t:t + 1]).abs() < 1e-4).sum(-1) > 1
+                assert ((ranks[a, :, j] == want) | near_tie).all()
+
+
+def test_trace_tracks_a_word_in_the_same_pass(model):
+    from residual_stream_vis import flow
+
+    tok = CharTokenizer()
+    lens = rsv.fit_lens(model, tok, ["the cat sat on a mat"], skip_first=1, progress=False)
+    rec = flow.record(model, tok, "the cat sat")
+    d = flow.trace_record(rec, model, tok, "the cat sat", lens, track_word="a")
+    want = flow.track(rec, model, tok, "a", lens)
+    assert d["track"]["logit"] == want["logit"] and d["track"]["jlens"] == want["jlens"] and d["track"]["token"] == want["token"]
+    assert flow.trace_record(rec, model, tok, "the cat sat", lens)["track"] is None
+
+
+def test_server_streams_generation():
+    import json, threading, urllib.request
+
+    model, tok = MODELS["gpt2"].eval(), CharTokenizer()
+    server = rsv.server.make_server(model, tok, lens=None, port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{server.server_address[1]}/api/generate_stream",
+                                     data=json.dumps({"prompt": "the cat", "max_new_tokens": 3, "track": "a"}).encode(), method="POST")
+        raw = urllib.request.urlopen(req, timeout=60).read().decode()
+        events = [e for e in raw.split("\n\n") if e.strip()]
+        kinds = [e.split("\n")[0].removeprefix("event: ") for e in events]
+        assert kinds[-1] == "trace" and "text" in kinds
+        data = json.loads(events[-1].split("\n")[1].removeprefix("data: "))
+        assert data["generated"]["n_new"] == 3 and data["track"]["token"] == "a"
+    finally:
+        server.shutdown()
+        server.server_close()

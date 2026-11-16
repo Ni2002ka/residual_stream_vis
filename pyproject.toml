@@ -11,11 +11,11 @@ requires-python = ">=3.10"
 dependencies = [
     "torch>=2.1",
     "transformers>=4.56",
-    "plotly>=5.18",  # its bundled plotly.js draws the PCA panel, so the page works offline
 ]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+train = ["pyarrow"]  # WikiText-103 for `python -m residual_stream_vis.bdh --data wikitext`
 
 [project.scripts]
 residual-stream-vis = "residual_stream_vis.__main__:main"
