@@ -10,7 +10,12 @@ residual-stream-vis gpt2                    # or google/gemma-3-1b-pt
 
 The page opens at http://127.0.0.1:8000 and runs on your machine only.
 
+Note: GPT2 is much smaller than Gemma, and often get answers wrong.
+
+
 ## Install
+
+macOS / Linux:
 
 ```bash
 python -m venv .venv
@@ -18,8 +23,32 @@ python -m venv .venv
 .venv/bin/residual-stream-vis gpt2
 ```
 
+Windows (PowerShell):
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install -e .
+.venv\Scripts\residual-stream-vis gpt2
+```
+
 The first run downloads the model and its J-lens from the Hugging Face Hub.
-After that, `HF_HUB_OFFLINE=1` skips the network checks.
+After that, `HF_HUB_OFFLINE=1` skips the network checks (PowerShell:
+`$env:HF_HUB_OFFLINE = "1"`).
+
+### NVIDIA GPU on Windows (and Linux)
+
+On Windows, `pip install torch` gives a CPU-only build, so the CUDA GPU goes
+unused. Swap in a CUDA build from PyTorch's index, choosing the CUDA tag your
+driver supports (`nvidia-smi` shows it; see [pytorch.org](https://pytorch.org/get-started/locally/)):
+
+```powershell
+.venv\Scripts\pip install --force-reinstall --no-deps torch --index-url https://download.pytorch.org/whl/cu130
+.venv\Scripts\python -c "import torch; print(torch.cuda.is_available())"   # True
+```
+
+Re-running `pip install -e .` keeps the CUDA build, since it already satisfies
+the requirement. The device is picked automatically (CUDA, then Apple GPU, then
+CPU); `--device cpu` overrides it. An 8 GB card runs Gemma-3-1B comfortably.
 
 ## What the page shows
 
@@ -153,7 +182,7 @@ The model is the reference `bdh.py` laid out so the viewer can hook into it
 Pathway's `train.py` load too, with `rsv.bdh.from_reference_state_dict`.
 
 A prompt is one forward pass plus a lens readout of every cell. On an Apple
-GPU (picked automatically) Gemma-3-1B takes about 3 seconds; on CPU the readout
+GPU (picked automatically; CUDA GPUs are too) Gemma-3-1B takes about 3 seconds; on CPU the readout
 against its 262k-word vocabulary takes minutes, so use a GPU for Gemma.
 
 Command-line options: `--port`, `--host`, `--device`, `--lens auto|none|PATH`,
@@ -198,9 +227,15 @@ so fitted and published lenses are interchangeable. The method is from
 ## Development
 
 ```bash
-.venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest
+.venv/bin/pip install -e ".[dev]"       # Windows: .venv\Scripts\pip install -e ".[dev]"
+.venv/bin/pytest                        # Windows: .venv\Scripts\pytest
 ```
 
 The tests build tiny random GPT-2, Llama, Gemma-3 and BDH models, so they run
 offline in seconds.
+
+
+## TLDR good resources:
+* https://www.neuronpedia.org/gemma-3-1b/jlens
+* https://huggingface.co/neuronpedia/jacobian-lens
+* https://huggingface.co/blog/dlouapre/j-space
